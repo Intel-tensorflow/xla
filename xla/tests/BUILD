@@ -24,8 +24,7 @@ load(
 )
 
 package(
-    # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
-    default_visibility = [":friends"],
+    default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
 
@@ -44,6 +43,7 @@ filegroup(
         "**/*.cc",
         "**/*.h",
     ]),
+    visibility = ["//visibility:public"],
 )
 
 # Generate test_suites for all backends, named "${backend}_tests".
@@ -55,6 +55,7 @@ cc_library(
     name = "xla_internal_test_main",
     testonly = True,
     srcs = ["xla_internal_test_main.cc"],
+    visibility = ["//visibility:public"],
     deps = [
         "//xla:debug_options_flags",
         "@com_google_absl//absl/strings",
@@ -69,6 +70,7 @@ cc_library(
     name = "test_macros_header",
     testonly = True,
     hdrs = ["test_macros.h"],
+    visibility = ["//visibility:public"],
 )
 
 # Generate a test_macros_${BACKEND} library per backend with the proper copts.
@@ -79,6 +81,7 @@ cc_library(
     testonly = True,
     srcs = ["manifest_checking_test.cc"],
     hdrs = ["manifest_checking_test.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":test_macros_header",
         "@com_google_absl//absl/container:flat_hash_map",
@@ -93,6 +96,7 @@ cc_library(
     name = "test_utils",
     srcs = ["test_utils.cc"],
     hdrs = ["test_utils.h"],
+    visibility = ["//visibility:public"],
     deps = [
         "//xla:literal",
         "//xla:literal_util",
@@ -111,6 +115,7 @@ cc_library(
     testonly = True,
     srcs = ["literal_test_util.cc"],
     hdrs = ["literal_test_util.h"],
+    visibility = ["//visibility:public"],
     deps = [
         "//xla:array2d",
         "//xla:array3d",
@@ -138,6 +143,7 @@ cc_library(
     testonly = True,
     srcs = ["verified_hlo_module.cc"],
     hdrs = ["verified_hlo_module.h"],
+    visibility = ["//visibility:public"],
     deps = [
         "//xla:shape_util",
         "//xla:status_macros",
@@ -159,6 +165,7 @@ cc_library(
     name = "pjrt_client_registry",
     srcs = ["pjrt_client_registry.cc"],
     hdrs = ["pjrt_client_registry.h"],
+    visibility = ["//visibility:public"],
     deps = [
         "//xla/pjrt:pjrt_client",
     ],
@@ -170,6 +177,7 @@ cc_library(
     srcs = [
         "pjrt_cpu_client_registry.cc",
     ],
+    visibility = ["//visibility:public"],
     deps = [
         ":pjrt_client_registry",
         "//xla/pjrt:tfrt_cpu_pjrt_client",
@@ -182,6 +190,7 @@ cc_library(
     srcs = [
         "pjrt_gpu_client_registry.cc",
     ],
+    visibility = ["//visibility:public"],
     deps = [
         ":pjrt_client_registry",
         "//xla/pjrt/gpu:se_gpu_pjrt_client",
@@ -193,6 +202,7 @@ cc_library(
     testonly = True,
     srcs = ["hlo_test_base.cc"],
     hdrs = ["hlo_test_base.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":filecheck",
         ":literal_test_util",
@@ -259,6 +269,7 @@ cc_library(
     testonly = True,
     srcs = ["client_library_test_base.cc"],
     hdrs = ["client_library_test_base.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":literal_test_util",
         ":manifest_checking_test",
@@ -296,6 +307,7 @@ cc_library(
     testonly = True,
     srcs = ["llvm_irgen_test_base.cc"],
     hdrs = ["llvm_irgen_test_base.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":codegen_test_base",
         ":filecheck",
@@ -311,6 +323,7 @@ cc_library(
     testonly = True,
     srcs = ["codegen_test_base.cc"],
     hdrs = ["codegen_test_base.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":hlo_test_base",
         "//xla/hlo/ir:hlo",
@@ -327,6 +340,7 @@ cc_library(
     data = [
         "@llvm-project//llvm:FileCheck",
     ],
+    visibility = ["//visibility:public"],
     deps = [
         "//xla:statusor",
         "//xla:types",
@@ -344,6 +358,7 @@ cc_library(
     testonly = True,
     srcs = ["local_client_test_base.cc"],
     hdrs = ["local_client_test_base.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":client_library_test_base",
         ":manifest_checking_test",
@@ -789,6 +804,7 @@ cc_library(
     testonly = True,
     srcs = ["conv_depthwise_common.cc"],
     hdrs = ["conv_depthwise_common.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":client_library_test_base",
         ":hlo_test_base",
@@ -2853,5 +2869,41 @@ xla_test(
         "//xla:test",
         "//xla:test_helpers",
         "@tsl//tsl/platform:platform_port",
+    ],
+)
+
+xla_test(
+    name = "onednn_softmax_test",
+    srcs = ["onednn_softmax_test.cc"],
+    backends = [
+        "cpu",
+    ],
+    copts = tsl_copts(),
+    deps = [
+        ":hlo_test_base",
+        ":test_macros_header",
+        ":xla_internal_test_main",
+        "//xla:literal",
+        "//xla:shape_util",
+        "//xla:test",
+        "//xla:test_helpers",
+    ],
+)
+
+xla_test(
+    name = "onednn_layer_norm_test",
+    srcs = ["onednn_layer_norm_test.cc"],
+    backends = [
+        "cpu",
+    ],
+    copts = tsl_copts(),
+    deps = [
+        ":hlo_test_base",
+        ":test_macros_header",
+        ":xla_internal_test_main",
+        "//xla:literal",
+        "//xla:shape_util",
+        "//xla:test",
+        "//xla:test_helpers",
     ],
 )
