@@ -17,6 +17,7 @@ limitations under the License.
 
 #include "xla/hlo/ir/dfs_hlo_visitor_with_default.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/literal_util.h"
 #include "xla/service/cpu/backend_config.pb.h"
 #include "xla/service/cpu/onednn_memory_util.h"
 #include "xla/service/cpu/onednn_util.h"
@@ -152,12 +153,164 @@ bool OneDnnConvolutionRewriter::ShouldRewrite(const HloInstruction* conv) {
   return true;
 }
 
+inline bool S32ToF32(const HloInstruction* instr) {
+  return instr->shape().element_type() == F32 &&
+         instr->operand(0)->shape().element_type() == S32;
+}
+
+inline bool Int8ToS32(const HloInstruction* instr) {
+  auto input_type = instr->operand(0)->shape().element_type();
+  return instr->shape().element_type() == S32 &&
+         (input_type == S8 || input_type == U8);
+}
+
+inline bool F32ToInt8(const HloInstruction* instr) {
+  auto output_type = instr->shape().element_type();
+  return instr->operand(0)->shape().element_type() == F32 &&
+         (output_type == S8 || output_type == U8);
+}
+
+inline auto Int8ToS32Pattern(HloInstruction** quant_input) {
+  return m::Convert(m::Op(quant_input)).WithPredicate(Int8ToS32);
+}
+
+inline auto AddZPPattern(HloInstruction** quant_input, HloInstruction** zp) {
+  return m::AddAnyOrder(Int8ToS32Pattern(quant_input),
+                        m::Broadcast(m::Constant(zp)));
+}
+
+inline auto S32ToF32WithOptionalAddZP(HloInstruction** quant_input,
+                                      HloInstruction** zp) {
+  return m::Convert(m::AnyOf<HloInstruction>(AddZPPattern(quant_input, zp),
+                                             Int8ToS32Pattern(quant_input)))
+      .WithPredicate(S32ToF32);
+}
+
+template <typename Pattern>
+auto OptionalCopyAndBitcastPattern(Pattern pattern, HloInstruction** copy,
+                                   HloInstruction** bitcast) {
+  return m::AnyOf<HloInstruction>(m::Copy(copy, m::Bitcast(bitcast, pattern)),
+                                  pattern);
+}
+
+auto DequantizePattern(HloInstruction** quant_input, HloInstruction** scale,
+                       HloInstruction** zp, HloInstruction** copy,
+                       HloInstruction** bitcast) {
+  auto deq_pattern = m::AnyOf<HloInstruction>(
+      m::MultiplyAnyOrder(S32ToF32WithOptionalAddZP(quant_input, zp),
+                          m::Broadcast(m::Constant(scale))),
+      S32ToF32WithOptionalAddZP(quant_input, zp));
+  // Layout assignment pass may insert Transpose | Bitcast -> Copy pattern.
+  // For now we only handle Bitcast -> Copy assuming Transpose was replaced with
+  // Bitcast by AlgebraicSimplifier.
+  return OptionalCopyAndBitcastPattern(deq_pattern, copy, bitcast);
+}
+
+auto OptionalAddZPAndMultiplyScale(HloInstruction** scale, HloInstruction** zp,
+                                   HloInstruction** input_custom_call) {
+  auto multiply_scale =
+      m::MultiplyAnyOrder(OneDnnConvolutionInstr(input_custom_call),
+                          m::Broadcast(m::Constant(scale)));
+  auto add_zp = m::AddAnyOrder(
+      m::AnyOf<HloInstruction>(multiply_scale,
+                               OneDnnConvolutionInstr(input_custom_call)),
+      m::Broadcast(m::Constant(zp)));
+  return m::AnyOf<HloInstruction>(add_zp, multiply_scale,
+                                  OneDnnConvolutionInstr(input_custom_call));
+}
+
+auto QuantizePattern(HloInstruction** scale, HloInstruction** zp,
+                     HloInstruction** input_custom_call,
+                     HloInstruction** clamp_min, HloInstruction** clamp_max) {
+  auto quant_pattern =
+      m::Convert(
+          m::Op()
+              .WithOpcode(HloOpcode::kRoundNearestEven)
+              .WithOperand(0, m::Clamp(m::Broadcast(m::Constant(clamp_min)),
+                                       OptionalAddZPAndMultiplyScale(
+                                           scale, zp, input_custom_call),
+                                       m::Broadcast(m::Constant(clamp_max)))))
+          .WithPredicate(F32ToInt8);
+  return quant_pattern;
+}
+
+class OneDnnConvolutionRequantizeVisitor : public DfsHloRewriteVisitor {
+ public:
+  Status HandleCustomCall(HloInstruction* custom_call) override {
+    HloInstruction *conv = nullptr, *input_custom_call = nullptr,
+                   *scale = nullptr, *zp = nullptr, *clamp_min = nullptr,
+                   *clamp_max = nullptr;
+    if (Match(custom_call, OneDnnConvolutionInstr(&conv))) {
+      // Try to match the requantize case:
+      // onednn_custom_call[int8 in, f32 out] -> uniform_quantize_pattern ->
+      //        onednn_custom_call[int8 in, f32 out].
+      // This will be replaced by
+      // onednn_custom_call[int8 in, int8 out] -> onednn_custom_call[int8 in,
+      // f32 out]
+      bool requant_conv = Match(
+          custom_call,
+          m::Op()
+              .WithOpcode(HloOpcode::kCustomCall)
+              .WithOperand(0, QuantizePattern(&scale, &zp, &input_custom_call,
+                                              &clamp_min, &clamp_max)));
+      if (requant_conv) {
+        if (input_custom_call != nullptr && scale != nullptr && zp != nullptr) {
+          std::vector<HloInstruction*> requant_call_operands;
+          for (auto operand : input_custom_call->operands()) {
+            requant_call_operands.push_back(operand);
+          }
+          // Currently we don't pass clamp_min/clamp_max to the custom-call.
+          // We assume they have the default values which are the
+          // bounds of the range of the integer data type used.
+          requant_call_operands.push_back(scale);
+          requant_call_operands.push_back(zp);
+          auto requant_conv_call =
+              Cast<HloCustomCallInstruction>(custom_call->AddInstruction(
+                  input_custom_call->CloneWithNewOperands(
+                      ShapeUtil::ChangeElementType(
+                          input_custom_call->shape(),
+                          custom_call->operands()[0]->shape().element_type()),
+                      requant_call_operands)));
+          const int size = custom_call->operands().size();
+          std::vector<HloInstruction*> new_operands(size);
+          new_operands[0] = requant_conv_call;
+          for (int i = 1; i < size; ++i) {
+            new_operands[i] = custom_call->operands()[i];
+          }
+          auto new_conv_call = Cast<HloCustomCallInstruction>(
+              custom_call->AddInstruction(custom_call->CloneWithNewOperands(
+                  custom_call->shape(), new_operands)));
+          TF_RETURN_IF_ERROR(ReplaceInstruction(custom_call, new_conv_call));
+        }
+      }
+    }
+    return OkStatus();
+  }
+};
+
 class OneDnnConvolutionRewriterVisitor : public DfsHloRewriteVisitor {
  public:
   Status HandleConvolution(HloInstruction* conv) override {
     auto pattern = match::Op(&conv).WithOpcode(HloOpcode::kConvolution);
+    HloInstruction *quant_src = nullptr, *src_scale = nullptr,
+                   *src_zp = nullptr, *quant_wei = nullptr,
+                   *wei_scale = nullptr, *wei_zp = nullptr, *copy_src = nullptr,
+                   *bitcast_src = nullptr, *copy_wei = nullptr,
+                   *bitcast_wei = nullptr;
+
     if (!Match(conv, pattern)) return OkStatus();
     if (!OneDnnConvolutionRewriter::ShouldRewrite(conv)) return OkStatus();
+
+    // Try to match uniform_dequantize_pattern -> convolution.
+    // This will be replaced with onednn_custom_call[int8 in, f32 out].
+    bool quant_conv = Match(
+        conv,
+        m::Op(&conv)
+            .WithOpcode(HloOpcode::kConvolution)
+            .WithOperand(0, DequantizePattern(&quant_src, &src_scale, &src_zp,
+                                              &copy_src, &bitcast_src))
+            .WithOperand(1, DequantizePattern(&quant_wei, &wei_scale, &wei_zp,
+                                              &copy_wei, &bitcast_wei)));
 
     const Shape& conv_shape = conv->shape();
     auto dims = conv->window().dimensions().size();
@@ -206,10 +359,69 @@ class OneDnnConvolutionRewriterVisitor : public DfsHloRewriteVisitor {
           conv_ddata.output_spatial_dimensions()[i] + 1);
     }
 
-    HloInstruction* custom_call =
-        conv->AddInstruction(HloInstruction::CreateCustomCall(
-            output_shape, {conv->mutable_operand(0), conv->mutable_operand(1)},
-            "__onednn$convolution"));
+    auto create_bitcast_copy =
+        [&](HloInstruction* quant_operand, HloInstruction* bitcast,
+            HloInstruction* copy, HloInstruction*& new_bitcast,
+            HloInstruction*& new_copy) {
+          auto quant_type = quant_operand->shape().element_type();
+          new_bitcast = conv->AddInstruction(HloInstruction::CreateBitcast(
+              ShapeUtil::ChangeElementType(bitcast->shape(), quant_type),
+              quant_operand));
+          new_copy = conv->AddInstruction(HloInstruction::CreateUnary(
+              ShapeUtil::ChangeElementType(copy->shape(), quant_type),
+              HloOpcode::kCopy, new_bitcast));
+        };
+
+    HloInstruction* custom_call;
+    if (quant_conv) {
+      HloInstruction *new_bitcast_src, *new_copy_src, *new_bitcast_wei,
+          *new_copy_wei;
+      // We need to add bitcast and copy instructions that were in the original
+      // pattern after each operand,
+      if (copy_src != nullptr && bitcast_src != nullptr) {
+        create_bitcast_copy(quant_src, bitcast_src, copy_src, new_bitcast_src,
+                            new_copy_src);
+      } else {
+        new_copy_src = quant_src;
+      }
+      if (copy_wei != nullptr && bitcast_wei != nullptr) {
+        create_bitcast_copy(quant_wei, bitcast_wei, copy_wei, new_bitcast_wei,
+                            new_copy_wei);
+      } else {
+        new_copy_wei = quant_wei;
+      }
+
+      const float scale = 1.0;
+      const int zp = 0;
+      auto set_default_value = [&]<typename T>(HloInstruction*& instr,
+                                               T value) {
+        instr = conv->AddInstruction(
+            HloInstruction::CreateConstant(LiteralUtil::CreateR0<T>(value)));
+      };
+      // If scale and/or zp are not found. That means they had a default values
+      // that were optimized out. Hence, we set a default value of 1.0 and 0 for
+      // scale and zp respectively.
+      if (src_scale == nullptr) {
+        set_default_value(src_scale, scale);
+      }
+      if (src_zp == nullptr) {
+        set_default_value(src_zp, zp);
+      }
+      if (wei_scale == nullptr) {
+        set_default_value(wei_scale, scale);
+      }
+      if (wei_zp == nullptr) {
+        set_default_value(wei_zp, zp);
+      }
+      custom_call = conv->AddInstruction(HloInstruction::CreateCustomCall(
+          output_shape,
+          {new_copy_src, new_copy_wei, src_scale, src_zp, wei_scale, wei_zp},
+          "__onednn$convolution"));
+    } else {
+      custom_call = conv->AddInstruction(HloInstruction::CreateCustomCall(
+          output_shape, {conv->mutable_operand(0), conv->mutable_operand(1)},
+          "__onednn$convolution"));
+    }
 
     TF_RETURN_IF_ERROR(custom_call->set_backend_config(backend_config));
     TF_RETURN_IF_ERROR(ReplaceInstruction(conv, custom_call));
@@ -239,10 +451,6 @@ class OneDnnConvolutionRewriterVisitor : public DfsHloRewriteVisitor {
                   ->mutable_fusions()->ops(0) == OneDnnFusionConfig::BIAS) {
         return OkStatus();
       }
-      std::vector<HloInstruction*> new_operands;
-      for (auto operand : conv->operands()) {
-        new_operands.push_back(operand);
-      }
 
       HloInstruction* addend = nullptr;
       HloInstruction* optional_addend_broadcast = nullptr;
@@ -255,8 +463,20 @@ class OneDnnConvolutionRewriterVisitor : public DfsHloRewriteVisitor {
           m::Op(&addend));
       if (!Match(addend_intermediate, addend_pattern)) return OkStatus();
 
+      // Make sure bias is always the third argument as opposed to adding to the
+      // end as the onednn_custom_call may have more than two operands (ex:
+      // quantized custom_call).
+      std::vector<HloInstruction*> new_operands(conv->operands().size() + 1);
+      int idx = 0;
+      const int kBiasIdx = 2;
+      for (auto operand : conv->operands()) {
+        // Skip bias index
+        if (idx == kBiasIdx) idx++;
+        new_operands[idx++] = operand;
+      }
+
       if (CompatibleElementType(addend) && IsOperandFusible(addend, conv)) {
-        new_operands.push_back(addend);
+        new_operands[kBiasIdx] = addend;
       } else {
         return OkStatus();
       }
@@ -347,7 +567,12 @@ StatusOr<bool> OneDnnConvolutionRewriter::Run(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
   OneDnnConvolutionRewriterVisitor visitor;
-  return visitor.RunOnModule(module, execution_threads);
+  TF_ASSIGN_OR_RETURN(auto result,
+                      visitor.RunOnModule(module, execution_threads));
+  OneDnnConvolutionRequantizeVisitor visitor_requantize;
+  TF_ASSIGN_OR_RETURN(auto result_requantize, visitor_requantize.RunOnModule(
+                                                  module, execution_threads));
+  return (result || result_requantize);
 }
 
 }  // namespace cpu
