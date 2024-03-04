@@ -11,11 +11,10 @@ message BackendConfig {
   // Configuration to be used by oneDNN matmul
   OneDnnMatMulConfig onednn_matmul_config = 2;
   OneDnnLayerNormConfig onednn_layer_norm_config = 3;
+  OneDnnConvolutionConfig onednn_conv_config = 4;
 }
 
-message OneDnnMatMulConfig {
-  bool transpose_a = 1;
-  bool transpose_b = 2;
+message OneDnnFusionConfig {
   // These enum needs to be mapped to oneDNN enum for post_op algorithm.
   // TODO(intel-tf): Add kinds supported by oneDNN.
   enum FusionKind {
@@ -28,11 +27,34 @@ message OneDnnMatMulConfig {
     BINARY_ADD = 6;
     LINEAR = 7;
   }
-  repeated FusionKind fused_ops = 3;
-  bool bias_broadcast = 4;
+  repeated FusionKind ops = 1;
   // To avoid protobuf failures for specific decimal values,
   // the original float value alpha is type-casted to int32.
-  int32 alpha_typecast = 5;
+  int32 alpha_typecast = 2;
+}
+
+message OneDnnMatMulConfig {
+  bool transpose_a = 1;
+  bool transpose_b = 2;
+  
+  bool bias_broadcast = 3;
+  
+  OneDnnFusionConfig fusions = 4;
+}
+
+message TensorLayoutProto {
+  uint64 dims = 1;
+  uint64 ibdim = 2;
+  uint64 ofdim = 3;
+  repeated uint64 sdims = 4;
+}
+
+message WindowProto {
+  repeated uint64 size = 1;
+  repeated uint64 pad_l = 2;
+  repeated uint64 pad_r = 3;
+  repeated uint64 strides = 4;
+  repeated uint64 rhs_dil = 5;
 }
 
 message OneDnnLayerNormConfig {
@@ -45,4 +67,16 @@ message OneDnnLayerNormConfig {
     SCALE_AND_SHIFT = 3;
   }
   FusionKind fused_ops = 1;
+}
+
+message OneDnnConvolutionConfig {
+  uint64 dims = 1;
+  TensorLayoutProto inp = 2;
+  TensorLayoutProto ker = 3;
+  TensorLayoutProto out = 4;
+  WindowProto window = 5;
+
+  OneDnnFusionConfig fusions = 6;
+  uint64 feature_groups = 7;
+  bool bias_broadcast = 8;
 }

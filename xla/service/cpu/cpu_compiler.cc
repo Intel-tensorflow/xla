@@ -241,6 +241,7 @@ limitations under the License.
 #if defined(INTEL_MKL) && defined(ENABLE_ONEDNN_V3)
 #include "xla/service/cpu/cpu_float_support.h"
 #include "xla/service/cpu/onednn_matmul_rewriter.h"
+#include "xla/service/cpu/onednn_convolution_rewriter.h"
 #include "xla/service/cpu/onednn_ops_rewriter.h"
 #endif
 
@@ -915,6 +916,7 @@ Status CpuCompiler::RunHloPassesAfterLayoutAssn(
     // Run SimplifyFPConversions pass to simplify the BF16 pattern and make it
     // easier to match.
     pipeline.AddPass<SimplifyFPConversions>();
+    pipeline.AddPass<OneDnnConvolutionRewriter>();
     pipeline.AddPass<OneDnnMatMulRewriter>(max_parallelism,
                                            compile_options.thread_pool);
     // Run SimplifyFPConversions pass again to remove redundant Convert ops

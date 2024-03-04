@@ -8659,6 +8659,38 @@ Status AlgebraicSimplifierVisitor::HandleConvolution(
   if (swapped) {
     return OkStatus();
   }
+  #if defined(INTEL_MKL) && defined(ENABLE_ONEDNN_V3)
+  // Under the above conditions, convolutions remain in lower floating point
+  // precision. To ensure the correctness of the generated LLVM IR, we cast the
+  // convolutions to higher precision. This does not compromise performance as
+  // lower floating point precision convolutions are converted to higher
+  // precision in the regular optimization pipeline.
+  bool converted_conv = false;
+  auto from = convolution->shape().element_type();
+  if (from == PrimitiveType::BF16 || from == PrimitiveType::F16) {
+    auto to = PrimitiveType::F32;
+
+    std::vector<HloInstruction*> newops;
+    auto ops = convolution->operands();
+
+    std::for_each(ops.begin(), ops.end(), [&newops, &to](HloInstruction* n) {
+      newops.push_back(n->AddInstruction(HloInstruction::CreateConvert(
+          ShapeUtil::ChangeElementType(n->shape(), to), n)));
+    });
+
+    HloInstruction* to_conv =
+        convolution->AddInstruction(convolution->CloneWithNewOperands(
+            ShapeUtil::ChangeElementType(convolution->shape(), to), newops));
+
+    HloInstruction* from_conv =
+        to_conv->AddInstruction(HloInstruction::CreateConvert(
+            ShapeUtil::ChangeElementType(to_conv->shape(), from), to_conv));
+
+    TF_RETURN_IF_ERROR(ReplaceInstruction(convolution, from_conv));
+    convolution = std::move(to_conv);
+    converted_conv = true;
+  }
+#endif  // INTEL_MKL && ENABLE_ONEDNN_V3
   // Try to replace the convolution with a kDot or a kMultiply instruction.
   TF_ASSIGN_OR_RETURN(bool replaced_with_dot, SimplifyConvToDot(convolution));
   if (replaced_with_dot) {
@@ -8669,6 +8701,25 @@ Status AlgebraicSimplifierVisitor::HandleConvolution(
   if (replaced_with_multiply) {
     return OkStatus();
   }
+#if defined(INTEL_MKL) && defined(ENABLE_ONEDNN_V3)
+  // Undo changes
+  if (converted_conv) {
+    std::vector<HloInstruction*> newops;
+    auto ops = convolution->operands();
+
+    std::for_each(ops.begin(), ops.end(), [&newops](HloInstruction* n) {
+      newops.push_back(n->mutable_operand(0));
+    });
+
+    HloInstruction* from_conv =
+        convolution->AddInstruction(convolution->CloneWithNewOperands(
+            ShapeUtil::ChangeElementType(convolution->shape(), from), newops));
+
+    HloInstruction* to_conv = convolution->users()[0];
+
+    TF_RETURN_IF_ERROR(ReplaceInstruction(to_conv, from_conv));
+  }
+#endif  // INTEL_MKL && ENABLE_ONEDNN_V3
 
   return OkStatus();
 }
