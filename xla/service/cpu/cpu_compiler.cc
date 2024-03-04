@@ -910,24 +910,6 @@ Status CpuCompiler::RunHloPassesAfterLayoutAssn(
           ? module->config().intra_op_parallelism_threads()
           : tsl::port::NumSchedulableCPUs();
 
-#if defined(INTEL_MKL) && defined(ENABLE_ONEDNN_V3)
-  // AOT compiled code runs in single thread.
-  if (!is_aot_compile) {
-    // Run SimplifyFPConversions pass to simplify the BF16 pattern and make it
-    // easier to match.
-    pipeline.AddPass<SimplifyFPConversions>();
-    pipeline.AddPass<OneDnnConvolutionRewriter>();
-    pipeline.AddPass<OneDnnMatMulRewriter>(max_parallelism,
-                                           compile_options.thread_pool);
-    // Run SimplifyFPConversions pass again to remove redundant Convert ops
-    // that may exist as a result of running OneDnnMatMulRewriter pass.
-    pipeline.AddPass<SimplifyFPConversions>();
-  }
-#endif  // INTEL_MKL && ENABLE_ONEDNN_V3
-
-  // Add a fusion pass now that layout assignment is done.
-  pipeline.AddPass<CpuInstructionFusion>();
-
   // The LayoutAssignment pass may leave behind kCopy instructions which are
   // duplicate or NOPs, so remove them with algebraic simplification and CSE.
   // Run this to a fixed point.
@@ -950,6 +932,24 @@ Status CpuCompiler::RunHloPassesAfterLayoutAssn(
     pipeline.AddPass<HloDCE>();
     pipeline.AddPass<HloCSE>(/*is_layout_sensitive=*/true);
   }();
+
+#if defined(INTEL_MKL) && defined(ENABLE_ONEDNN_V3)
+  // AOT compiled code runs in single thread.
+  if (!is_aot_compile) {
+    // Run SimplifyFPConversions pass to simplify the BF16 pattern and make it
+    // easier to match.
+    pipeline.AddPass<SimplifyFPConversions>();
+    pipeline.AddPass<OneDnnConvolutionRewriter>();
+    pipeline.AddPass<OneDnnMatMulRewriter>(max_parallelism,
+                                           compile_options.thread_pool);
+    // Run SimplifyFPConversions pass again to remove redundant Convert ops
+    // that may exist as a result of running OneDnnMatMulRewriter pass.
+    pipeline.AddPass<SimplifyFPConversions>();
+  }
+#endif  // INTEL_MKL && ENABLE_ONEDNN_V3
+
+  // Add a fusion pass now that layout assignment is done.
+  pipeline.AddPass<CpuInstructionFusion>();
 
   // Outline ops in the entry computation into calls to subcomputations.
   if (!is_aot_compile) {
