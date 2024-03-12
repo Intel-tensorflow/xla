@@ -16,6 +16,7 @@ cc_library(
         ".",
         "sycl/include",
         "sycl/include/sycl",
+	"level-zero/include",
     ],
     visibility = ["//visibility:public"],
 )
@@ -32,7 +33,7 @@ cc_library(
         ".",
         "sycl/include",
     ],
-    linkopts = ["-lze_loader"],
+    deps = [":level-zero"],
     linkstatic = 1,
     visibility = ["//visibility:public"],
 )
@@ -56,6 +57,22 @@ cc_library(
         "sycl/include",
     ],
     # linkopts = ["-Wl,-Bstatic,-lsvml,-lirng,-limf,-lirc,-lirc_s,-Bdynamic"],
+    linkstatic = 1,
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "level-zero",
+    srcs = [
+        %{level_zero_libs}
+    ],
+    data = [
+        %{level_zero_libs}
+    ],
+    includes = [
+        ".",
+	"level-zero/include",
+    ],
     linkstatic = 1,
     visibility = ["//visibility:public"],
 )
