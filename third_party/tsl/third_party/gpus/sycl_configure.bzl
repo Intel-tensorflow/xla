@@ -40,6 +40,16 @@ def _sycl_header_path(repository_ctx, sycl_config, bash_bin):
             auto_configure_fail("Cannot find sycl headers in {}".format(include_dir))
     return sycl_header_path
 
+def _get_default_l0_path():
+    return "/usr"
+
+def _get_l0_path(repository_ctx, bash_bin):
+    l0_path = get_host_environ(repository_ctx, "TF_L0_PATH", _get_default_l0_path())
+    lib_path = "/lib/x86_64-linux-gnu/libze_loader.so"
+    if not files_exist(repository_ctx, [l0_path + lib_path], bash_bin)[0]:
+        auto_configure_fail("Cannot find level zero library in %s" % (l0_path))
+    return l0_path
+
 def _sycl_include_path(repository_ctx, sycl_config, bash_bin):
     """Generates the cxx_builtin_include_directory entries for sycl inc dirs.
 
@@ -57,6 +67,7 @@ def _sycl_include_path(repository_ctx, sycl_config, bash_bin):
     inc_dirs.append(_mkl_path(sycl_config) + "/include")
     inc_dirs.append(_sycl_header_path(repository_ctx, sycl_config, bash_bin) + "/include")
     inc_dirs.append(_sycl_header_path(repository_ctx, sycl_config, bash_bin) + "/include/sycl")
+    inc_dirs.append(_get_l0_path(repository_ctx, bash_bin) + "/include")
 
     return inc_dirs
 
@@ -203,6 +214,7 @@ def _find_libs(repository_ctx, sycl_config, bash_bin):
         libs_paths.append(("mkl_sycl_rng", _sycl_lib_paths(repository_ctx, "mkl_sycl_rng", mkl_path)))
         libs_paths.append(("mkl_sycl_stats", _sycl_lib_paths(repository_ctx, "mkl_sycl_stats", mkl_path)))
         libs_paths.append(("mkl_sycl_data_fitting", _sycl_lib_paths(repository_ctx, "mkl_sycl_data_fitting", mkl_path)))
+    libs_paths.append(("ze_loader", [repository_ctx.path("%s/lib/x86_64-linux-gnu/%s" % (_get_l0_path(repository_ctx, bash_bin), _lib_name("ze_loader", version = "", static = False)))]))
     return _select_sycl_lib_paths(repository_ctx, libs_paths, bash_bin)
 
 def find_sycl_config(repository_ctx):
@@ -359,6 +371,7 @@ def _create_dummy_repository(repository_ctx):
             "%{core_sycl_libs}": "",
             "%{copy_rules}": "",
             "%{sycl_headers}": "",
+            "%{level_zero_libs}": "",
         },
     )
 
@@ -407,6 +420,12 @@ def _create_local_sycl_repository(repository_ctx):
         src_dir = _mkl_path(sycl_config) + "/include",
         out_dir = "sycl/include",
     ))
+    copy_rules.append(make_copy_dir_rule(
+        repository_ctx,
+        name = "level-zero-include",
+        src_dir = _get_l0_path(repository_ctx, bash_bin) + "/include",
+        out_dir = "level-zero/include",
+    ))
 
     sycl_libs = _find_libs(repository_ctx, sycl_config, bash_bin)
     sycl_lib_srcs = []
@@ -450,6 +469,7 @@ def _create_local_sycl_repository(repository_ctx):
         "sycl/lib/" + sycl_libs["sycl"].file_name,
         "sycl/lib/" + sycl_libs["OpenCL"].file_name,
     )
+    level_zero_libs = '"{}",\n'.format("sycl/lib/libze_loader.so")
     repository_dict = {
         "%{mkl_intel_ilp64_lib}": sycl_libs["mkl_intel_ilp64"].file_name,
         "%{mkl_sequential_lib}": sycl_libs["mkl_sequential"].file_name,
@@ -457,7 +477,8 @@ def _create_local_sycl_repository(repository_ctx):
         "%{mkl_sycl_libs}": mkl_sycl_libs,
         "%{core_sycl_libs}": core_sycl_libs,
         "%{copy_rules}": "\n".join(copy_rules),
-        "%{sycl_headers}": ('":mkl-include",\n":sycl-include",\n'),
+        "%{sycl_headers}": ('":mkl-include",\n":sycl-include",\n":level-zero-include",\n'),
+        "%{level_zero_libs}": level_zero_libs,
     }
     repository_ctx.template(
         "sycl/BUILD",
