@@ -403,6 +403,8 @@ class XLAConfigOptions:
         rc.append("build --config nonccl")
     elif self.backend == Backend.ROCM:
       pass
+    elif self.backend == Backend.SYCL:
+      rc.append("build --config sycl")
 
     # Lines that are added for every backend
     if dpav.ld_library_path:
