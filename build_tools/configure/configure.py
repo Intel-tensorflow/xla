@@ -183,6 +183,7 @@ class Backend(ArgparseableEnum):
   CPU = enum.auto()
   CUDA = enum.auto()
   ROCM = enum.auto()
+  SYCL = enum.auto()
 
 
 class HostCompiler(ArgparseableEnum):
