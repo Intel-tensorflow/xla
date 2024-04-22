@@ -1,5 +1,6 @@
 
 if [ -z ${SYCL_TOOLKIT_PATH+x} ];
+then
 workspace=$1
 action=$2
 echo "Install Intel OneAPI in $workspace/oneapi"

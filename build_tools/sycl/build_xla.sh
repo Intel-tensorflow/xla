@@ -3,6 +3,7 @@ workspace=$1
 cd $workspace/xla 
 
 if [ -z ${SYCL_TOOLKIT_PATH+x} ];
+then
   export SYCL_TOOLKIT_PATH=$workspace/oneapi/compiler/2024.1/
 fi
 bazel_bin=$(ls $workspace/bazel/)
