@@ -29,8 +29,8 @@ workspace=$1
 
 if [ -e ${workspace} ];then
   time_stamp=$(date +%s%N)
-  workspace=$workspace/$time_stamp
   echo "Warning: ${workspace} exist."
+  workspace=$workspace/$time_stamp
   echo "Will use $workspace as new workspace"
 fi
 
@@ -39,8 +39,8 @@ mkdir -p $workspace
 xla_path=$workspace/xla
 cd $workspace
 git clone -b guizili/build https://github.com/Intel-tensorflow/xla xla
+bash $xla_path/build_tools/sycl/install_bazel.sh $workspace
 bash $xla_path/build_tools/sycl/install_oneapi.sh $workspace install
-cd $workspace
 bash $xla_path/build_tools/sycl/build_xla.sh $workspace
 bash $xla_path/build_tools/sycl/clean.sh $workspace
 
