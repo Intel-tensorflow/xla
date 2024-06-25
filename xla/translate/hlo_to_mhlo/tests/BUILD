@@ -1,17 +1,20 @@
-load("windows_tests.bzl", "create_windows_tests")
+load("Windows_tests.bzl", "create_windows_tests")
+load("linux_tests.bzl", "create_linux_tests")
 load("@llvm-project//llvm:lit_test.bzl", "lit_test", "package_path")
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("//xla/tsl:tsl.bzl", "if_windows", "if_not_windows")
+
+
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
     licenses = ["notice"],
 )
 
-# Conditionally create tests for Windows
-select({
-    "@bazel_tools//src/conditions:windows": create_windows_tests(),
-    "//conditions:default": [],
-})
+# Use select to determine which tests to run based on the platform
+if_windows([create_windows_tests()])
+#if_not_windows([create_linux_tests()])
 
+# Expand the template
 expand_template(
     name = "lit_site_cfg_py",
     testonly = True,
@@ -29,55 +32,3 @@ expand_template(
     template = "lit.site.cfg.py.in",
     visibility = ["//visibility:private"],
 )
-
-load("//xla:lit.bzl", "enforce_glob", "lit_test_suite")
-load("@bazel_tools//src/conditions:common", "default")
-load("@bazel_tools//src/conditions:linux", "linux")
-
-package(
-    # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
-    licenses = ["notice"],
-)
-
-# Conditionally define the lit_test_suite for Linux platforms
-lit_test_suite(
-    name = "all_tests",
-    srcs = select({
-        "@bazel_tools//src/conditions:linux": enforce_glob(
-            [
-                "bool_compare.hlo",
-                "case_conditional.hlo",
-                "custom_call.hlo",
-                "dynamic_param.hlo",
-                "entry_computation_layout.hlo",
-                "frontend_attributes.hlo",
-                "fully_connected_reference_model.hlo",
-                "fusion.hlo",
-                "if_conditional.hlo",
-                "import.hlo",
-                "import_async.hlo",
-                "layouts_and_names.hlo",
-                "location.hlo",
-                "module_attributes.hlo",
-                "module_config.hlo",
-                "send_recv.hlo",
-                "simple.hlo",
-                "spmd_module_sharding.hlo",
-                "stacktrace_to_location.hlo",
-                "types.hlo",
-                "while.hlo",
-            ],
-            include = [
-                "*.hlo",
-            ],
-        ),
-        "//conditions:default": [],
-    }),
-    cfg = "//xla:lit.cfg.py",
-    tools = [
-        "//xla/translate:xla-translate",
-        "@llvm-project//llvm:FileCheck",
-        "@llvm-project//llvm:not",
-    ],
-)
-
