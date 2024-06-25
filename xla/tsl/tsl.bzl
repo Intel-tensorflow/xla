@@ -154,10 +154,18 @@ def if_windows(a, otherwise = []):
     })
 
 def if_not_windows(a):
+    is_windows = select({
+        clean_dep("//tensorflow:windows"): True,
+        "//conditions:default": False,
+    })
+    
+    print("Current platform is Windows:", is_windows)
+    
     return select({
-        clean_dep("//xla/tsl:windows"): [],
+        clean_dep("//tensorflow:windows"): [],
         "//conditions:default": a,
     })
+
 
 def if_not_fuchsia(a):
     return select({
