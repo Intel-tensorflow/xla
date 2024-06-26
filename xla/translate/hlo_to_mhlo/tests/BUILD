@@ -2,7 +2,7 @@ load("Windows_tests.bzl", "create_windows_tests")
 load("linux_tests.bzl", "create_linux_tests")
 load("@llvm-project//llvm:lit_test.bzl", "lit_test", "package_path")
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
-load("//xla/tsl:tsl.bzl", "if_windows", "if_not_windows")
+load("//xla/tsl:tsl.bzl", "if_windows", "if_not_windows", "if_linux_x86_64")
 
 
 package(
@@ -11,8 +11,11 @@ package(
 )
 
 # Use select to determine which tests to run based on the platform
+if_linux_x86_64([create_linux_tests()])
 if_windows([create_windows_tests()])
-#if_not_windows([create_linux_tests()])
+
+
+
 
 # Expand the template
 expand_template(
