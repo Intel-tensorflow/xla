@@ -1,13 +1,13 @@
 # windows_tests.bzl
-load("@bazel_skylib//rules:build_test.bzl", "build_test")
-load("@llvm-project//llvm:lit_test.bzl", "lit_test", "package_path")
-load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
 
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("@llvm-project//llvm:lit_test.bzl", "lit_test", "package_path")
 
 def create_windows_tests():
     return [
         lit_test(
-            name = "%s.test" % src,
+            name = "%s.test_win" % src,
             srcs = [src],
             data = [
                 "lit.cfg.py",
