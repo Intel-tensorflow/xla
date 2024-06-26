@@ -1,4 +1,4 @@
-load("Windows_tests.bzl", "create_windows_tests")
+load("windows_tests.bzl", "create_windows_tests")
 load("linux_tests.bzl", "create_linux_tests")
 load("@llvm-project//llvm:lit_test.bzl", "lit_test", "package_path")
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
