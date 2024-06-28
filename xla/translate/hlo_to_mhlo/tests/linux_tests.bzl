@@ -2,7 +2,9 @@
 
 load("//xla:lit.bzl", "enforce_glob", "lit_test_suite")
 
-def create_linux_tests():
+#Create and execute the tests on Linux platform
+def linux_tests(a):
+   if a==[]:
     return lit_test_suite(
         name = "all_tests",
         srcs = enforce_glob(
