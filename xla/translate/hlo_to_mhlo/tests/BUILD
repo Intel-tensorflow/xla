@@ -1,9 +1,8 @@
-load("windows_tests.bzl", "create_windows_tests")
-load("linux_tests.bzl", "create_linux_tests")
+load("windows_tests.bzl", "windows_tests")
+load("linux_tests.bzl", "linux_tests")
 load("@llvm-project//llvm:lit_test.bzl", "lit_test", "package_path")
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
-load("//xla/tsl:tsl.bzl", "if_windows", "if_not_windows", "if_linux_x86_64")
-
+load("//xla/tsl:tsl.bzl", "if_windows", "if_linux_x86_64")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
@@ -11,11 +10,9 @@ package(
 )
 
 # Use select to determine which tests to run based on the platform
-if_linux_x86_64([create_linux_tests()])
-if_windows([create_windows_tests()])
-
-
-
+test_win=if_windows([1])
+windows_tests(test_win)
+linux_tests(test_win)
 
 # Expand the template
 expand_template(
@@ -29,8 +26,8 @@ expand_template(
         "@ENABLE_SHARED@": "1",
         "@ENABLE_ASSERTIONS@": "1",
         # Separate '@' (reference to main repo) to avoid confusing copybara.
-        "@xla_Translate_TOOLS_DIR@": package_path("@" + "//xla/translate:BUILD"),
-        "@xla_Translate_Source_DIR@": package_path("@" + "//xla/translate/hlo_to_mhlo:BUILD"),
+        "@XLA_TRANSLATE_TOOLS_DIR@": package_path("@" + "//xla/translate:BUILD"),
+        "@XLA_TRANSLATE_SOURCE_DIR@": package_path("@" + "//xla/translate/hlo_to_mhlo:BUILD"),
     },
     template = "lit.site.cfg.py.in",
     visibility = ["//visibility:private"],
