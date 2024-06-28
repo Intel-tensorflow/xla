@@ -4,10 +4,12 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
 load("@llvm-project//llvm:lit_test.bzl", "lit_test", "package_path")
 
-def create_windows_tests():
+#Create and execute the tests on Windows platform
+def windows_tests(a):
+   if a!=[]:
     return [
         lit_test(
-            name = "%s.test_win" % src,
+            name = "%s.test" % src,
             srcs = [src],
             data = [
                 "lit.cfg.py",
