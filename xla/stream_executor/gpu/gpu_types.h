@@ -21,6 +21,7 @@ limitations under the License.
 #if TENSORFLOW_USE_SYCL
 
 #include "sycl/sycl.hpp"
+#include <complex>
 
 #elif TENSORFLOW_USE_ROCM
 

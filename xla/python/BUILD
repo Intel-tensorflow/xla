@@ -515,7 +515,7 @@ cc_library(
         ["@local_config_rocm//rocm:rocm_headers"],
         ["@local_config_cuda//cuda:cuda_headers"],
     ) + if_sycl_is_configured([
-        "//xla/stream_executor/sycl:sycl_gpu_runtime",
+        "//xla/stream_executor/sycl:sycl_platform",
         "@local_config_sycl//sycl:sycl_headers",
     ]),
 )
