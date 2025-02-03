@@ -436,6 +436,8 @@ cc_library(
         "@tsl//tsl/platform:errors",
         "@tsl//tsl/platform:human_readable_json",
         "@tsl//tsl/platform:statusor",
+        "@intel_extension_for_openxla//xla/service/gpu:ccl_collective_thunks",
+        "@intel_extension_for_openxla//xla/service/gpu:sycl_custom_call",
     ] + if_cuda_is_configured([
         "//xla/stream_executor/cuda:cuda_solver_context",
     ]) + if_rocm_is_configured([

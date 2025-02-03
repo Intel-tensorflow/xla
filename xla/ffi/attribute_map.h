@@ -19,13 +19,20 @@ limitations under the License.
 #include "absl/status/statusor.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "xla/ffi/call_frame.h"
+#include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/hlo/ir/hlo_instructions.h"
 
 namespace xla::ffi {
 
 // Converts MLIR dictionary attribute attached to a custom call operation to a
 // custom call handler attributes that are forwarded to the FFI handler.
+#ifndef TENSORFLOW_USE_SYCL
 absl::StatusOr<CallFrameBuilder::AttributesMap> BuildAttributesMap(
     mlir::DictionaryAttr dict);
+#else
+absl::StatusOr<CustomCallThunk::AttributesMap> BuildAttributesMap(
+  const HloCustomCallInstruction* instr);
+#endif // TENSORFLOW_USE_SYCL
 
 }  // namespace xla::ffi
 

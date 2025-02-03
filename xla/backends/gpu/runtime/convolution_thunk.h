@@ -44,7 +44,12 @@ class ConvolutionThunk : public Thunk {
   // Constructs a thunk for launching a DNN convolution.
   //
   // operand_slices should be in the same order as cudnn_call->operands().
-  ConvolutionThunk(ThunkInfo thunk_info, GpuConvConfig config,
+  ConvolutionThunk(ThunkInfo thunk_info,
+#if TENSORFLOW_USE_SYCL
+                   GpuConvDescriptor descriptor,
+#else
+                   GpuConvConfig config,
+#endif // TENSORFLOW_USE_SYCL
                    std::vector<BufferAllocation::Slice> operand_slices,
                    std::vector<BufferAllocation::Slice> result_slices,
                    BufferAllocation::Slice scratch_slice);
@@ -62,7 +67,11 @@ class ConvolutionThunk : public Thunk {
                                        bool* runner_created);
 
   // Convolution config
+#if TENSORFLOW_USE_SYCL
+  const GpuConvDescriptor descriptor_;
+#else
   const GpuConvConfig config_;
+#endif // TENSORFLOW_USE_SYCL
   absl::Mutex mu_;
   absl::flat_hash_map<const stream_executor::Stream*,
                       std::unique_ptr<GenericConvRunner>>

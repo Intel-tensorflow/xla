@@ -163,6 +163,7 @@ static absl::StatusOr<CallFrameBuilder::Attribute> ConvertDictionaryAttr(
       std::make_shared<CallFrameBuilder::AttributesMap>(std::move(attrs))};
 }
 
+#ifndef TENSORFLOW_USE_SYCL
 absl::StatusOr<CallFrameBuilder::AttributesMap> BuildAttributesMap(
     mlir::DictionaryAttr dict) {
   CallFrameBuilder::AttributesMap attributes;
@@ -196,5 +197,91 @@ absl::StatusOr<CallFrameBuilder::AttributesMap> BuildAttributesMap(
 
   return attributes;
 }
+#else
+absl::StatusOr<CustomCallThunk::AttributesMap> BuildAttributesMap(
+  const HloCustomCallInstruction* instr){
+  CustomCallThunk::AttributesMap attrs;
+  attrs["backend_config_str"] = instr->raw_backend_config_string();
+  if (IsCustomCallToDnnConvolution(*instr)) {
+    TF_ASSIGN_OR_RETURN(CudnnConvKind kind, GetCudnnConvKind(instr));
+    const Window& window = instr->window();
+    const ConvolutionDimensionNumbers& dnums = instr->convolution_dimension_numbers();
+    const int num_dimensions = window.dimensions_size();
+    const Shape& operand0_shape = instr->operand(0)->shape();
+    const Shape& operand1_shape = instr->operand(1)->shape();
+    const Shape& result_shape = instr->shape().tuple_shapes(0);
+
+    attrs["window_ShortDebugString"] = window.ShortDebugString();
+    attrs["window_num_dimensions"] = window.dimensions_size();
+    for (int i = 0; i < window.dimensions_size(); ++i) {
+      attrs["window_padding_low_" + std::to_string(i)] =
+        window.dimensions(i).padding_low();
+      attrs["window_padding_high_" + std::to_string(i)] =
+        window.dimensions(i).padding_high();
+      attrs["window_stride_" + std::to_string(i)] = window.dimensions(i).stride();
+      attrs["window_dilation_" + std::to_string(i)] =
+        window.dimensions(i).window_dilation();
+    }
+
+    attrs["dnums_ShortDebugString"] = dnums.ShortDebugString();
+    attrs["input_feature_dimension"] = dnums.input_feature_dimension();
+    attrs["input_batch_dimension"] = dnums.input_batch_dimension();
+    attrs["output_feature_dimension"] = dnums.output_feature_dimension();
+    attrs["kernel_input_feature_dimension"] =
+      dnums.kernel_input_feature_dimension();
+    attrs["kernel_output_feature_dimension"] =
+      dnums.kernel_output_feature_dimension();
+    for (int i = 0; i < num_dimensions; ++i) {
+      attrs["input_spatial_dimensions_" + std::to_string(i)] =
+        dnums.input_spatial_dimensions(i);
+      attrs["output_spatial_dimensions_" + std::to_string(i)] =
+        dnums.output_spatial_dimensions(i);
+      attrs["kernel_spatial_dimensions_" + std::to_string(i)] =
+        dnums.kernel_spatial_dimensions(i);
+      attrs["kernel_spatial_dimensions_" + std::to_string(i)] =
+        dnums.kernel_spatial_dimensions(i);
+    }
+    stream_executor::dnn::DataLayout input_dl;
+    stream_executor::dnn::FilterLayout filter_dl;
+    stream_executor::dnn::DataLayout output_dl;
+    if(kind == CudnnConvKind::kForward || kind == CudnnConvKind::kForwardActivation){
+      TF_ASSIGN_OR_RETURN(std::tie(input_dl, filter_dl, output_dl),
+                          XlaConvShapesToStreamExecutorLayouts(
+                            dnums, operand0_shape, operand1_shape, result_shape));
+    }else if(kind == CudnnConvKind::kBackwardInput){
+      TF_ASSIGN_OR_RETURN(std::tie(input_dl, filter_dl, output_dl),
+                          XlaConvShapesToStreamExecutorLayouts(
+                            dnums, result_shape, operand1_shape, operand0_shape));
+    }else if(kind == CudnnConvKind::kBackwardFilter){
+      TF_ASSIGN_OR_RETURN(std::tie(input_dl, filter_dl, output_dl),
+                          XlaConvShapesToStreamExecutorLayouts(
+                            dnums, operand0_shape, result_shape, operand1_shape));
+    }else{
+      return Internal("Unkown convolution kind");
+    }
+    attrs["input_dl"] = static_cast<int32_t>(input_dl);
+    attrs["filter_dl"] = static_cast<int32_t>(filter_dl);
+    attrs["output_dl"] = static_cast<int32_t>(output_dl);
+  }else if (IsLegacyCublasMatmul(*instr) || IsCublasLtMatmul(*instr)) {
+    const Shape& lhs_shape = instr->operand(0)->shape();
+    const Shape& rhs_shape = instr->operand(1)->shape();
+    const Shape& output_shape =
+        instr->shape().IsTuple() ? instr->shape().tuple_shapes(0) : instr->shape();
+    for (int i = 0; i < lhs_shape.layout().minor_to_major().size(); ++i) {
+        attrs["lhs_minor_to_major_" + std::to_string(i)] =
+            lhs_shape.layout().minor_to_major()[i];
+    }
+    for (int i = 0; i < rhs_shape.layout().minor_to_major().size(); ++i) {
+        attrs["rhs_minor_to_major_" + std::to_string(i)] =
+            rhs_shape.layout().minor_to_major()[i];
+    }
+    for (int i = 0; i < output_shape.layout().minor_to_major().size(); ++i) {
+        attrs["output_minor_to_major_" + std::to_string(i)] =
+            output_shape.layout().minor_to_major()[i];
+    }
+  }else return absl::InternalError("Unknown CustomCall To SYCL FFI Call");
+  return attrs;
+}
+#endif // TENSORFLOW_USE_SYCL
 
 }  // namespace xla::ffi

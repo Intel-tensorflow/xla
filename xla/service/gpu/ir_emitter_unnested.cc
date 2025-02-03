@@ -551,6 +551,7 @@ absl::Status IrEmitterUnnested::EmitSliceToDynamic(
 
 absl::Status IrEmitterUnnested::EmitCommandBufferThunk(
     const HloInstruction* instr) {
+#ifndef TENSORFLOW_USE_SYCL
   // Spawn a new IrEmitterUnnested to emit thunks for the command buffer
   // computation. Then convert emitted thunks to a sequence of CommandBufferCmd.
   // The resulting thunk added to the thunk sequence is a CommandBufferThunk.
@@ -580,7 +581,7 @@ absl::Status IrEmitterUnnested::EmitCommandBufferThunk(
       std::move(thunk_sequence),
       ir_emitter_context_->debug_options()
           .xla_enable_command_buffers_during_profiling()));
-
+#endif // TENSORFLOW_USE_SYCL
   return absl::OkStatus();
 }
 
@@ -622,10 +623,31 @@ absl::Status IrEmitterUnnested::EmitConvolutionThunk(
                                   instr->convolution_dimension_numbers(),
                                   instr->feature_group_count()};
 
-  TF_ASSIGN_OR_RETURN(GpuConvConfig config, GetGpuConvConfig(descriptor, ""));
-  AddThunkToThunkSequence(std::make_unique<ConvolutionThunk>(
-      Thunk::ThunkInfo::WithProfileAnnotation(instr), std::move(config),
+  ThunkSequence thunks;
+  if (kind == CudnnConvKind::kForwardActivation) {
+    // SYCL: OneDNN requires inplace sum
+    if (operand_slices.size() > 3 && operand_slices[3] != result_slices[0]) {
+      thunks.push_back(std::make_unique<DeviceToDeviceCopyThunk>(
+          Thunk::ThunkInfo::WithProfileAnnotation(instr),
+          /*side_input_buffer=*/operand_slices[3],
+          /*destination_buffer=*/result_slices[0],
+          /*mem_size=*/ShapeUtil::ByteSizeOf(instr->operand(3)->shape())));
+    }
+  }
+
+  // SYCL: use descriptor for sycl conv
+  // TODO: After SYCL support FFI convolution, below change should be removed
+  // TF_ASSIGN_OR_RETURN(GpuConvConfig config, GetGpuConvConfig(descriptor, ""));
+  thunks.push_back(std::make_unique<ConvolutionThunk>(
+      Thunk::ThunkInfo::WithProfileAnnotation(instr), std::move(descriptor),
       std::move(operand_slices), std::move(result_slices), scratch_slice));
+  if (thunks.size() == 1) {
+    AddThunkToThunkSequence(std::move(thunks[0]));
+  } else {
+    AddThunkToThunkSequence(std::make_unique<ConvolutionThunk>(
+        Thunk::ThunkInfo::WithProfileAnnotation(instr), std::move(config),
+        std::move(operand_slices), std::move(result_slices), scratch_slice));
+  }
   return absl::OkStatus();
 }
 
@@ -1195,6 +1217,9 @@ absl::Status IrEmitterUnnested::EmitCustomCallThunk(
 
   auto ffi_thunk = [&]() -> absl::StatusOr<std::unique_ptr<CustomCallThunk>> {
     auto& called_computations = instr->called_computations();
+#ifdef TENSORFLOW_USE_SYCL
+      TF_ASSIGN_OR_RETURN(attributes, BuildAttributesMap(instr));
+#else
     auto& backend_config_str =
         backend_config.ok()
             ? backend_config->custom_call_backend_config().attributes()
@@ -1210,6 +1235,7 @@ absl::Status IrEmitterUnnested::EmitCustomCallThunk(
       }
       TF_ASSIGN_OR_RETURN(attributes, xla::ffi::BuildAttributesMap(dict));
     }
+#endif // TENSORFLOW_USE_SYCL
     return CustomCallThunk::Create(
         Thunk::ThunkInfo::WithProfileAnnotation(instr), call_target_name,
         registration->bundle, std::move(operands), std::move(results),
@@ -2399,6 +2425,7 @@ absl::Status IrEmitterUnnested::EmitCopyDoneThunk(const HloInstruction* instr) {
 }
 
 absl::Status IrEmitterUnnested::EmitSendThunk(const HloSendInstruction* instr) {
+#ifndef TENSORFLOW_USE_SYCL
   const HloInstruction* src = instr->operand(0);
   TF_ASSIGN_OR_RETURN(BufferAllocation::Slice buffer,
                       GetAllocationSliceForHlo(src, {}));
@@ -2447,12 +2474,13 @@ absl::Status IrEmitterUnnested::EmitSendThunk(const HloSendInstruction* instr) {
       *instr->channel_id(), send_recv_events_,
       ConvertFrontendAttributes(instr->frontend_attributes()),
       DeviceConstraint(instr)));
-
+#endif // TENSORFLOW_USE_SYCL
   return absl::OkStatus();
 }
 
 absl::Status IrEmitterUnnested::EmitSendDoneThunk(
     const HloSendDoneInstruction* instr) {
+#ifndef TENSORFLOW_USE_SYCL
   if (!instr->is_host_transfer()) {
     return EmitNcclAsyncDone(Thunk::kNcclSendDone, instr);
   }
@@ -2465,11 +2493,12 @@ absl::Status IrEmitterUnnested::EmitSendDoneThunk(
   AddThunkToThunkSequence(std::make_unique<SendDoneThunk>(
       Thunk::ThunkInfo::WithProfileAnnotation(instr), *instr->channel_id(),
       send_recv_events_, DeviceConstraint(instr)));
-
+#endif // TENSORFLOW_USE_SYCL
   return absl::OkStatus();
 }
 
 absl::Status IrEmitterUnnested::EmitRecvThunk(const HloRecvInstruction* instr) {
+#ifndef TENSORFLOW_USE_SYCL
   TF_RET_CHECK(instr->shape().IsTuple());
   TF_ASSIGN_OR_RETURN(BufferAllocation::Slice buffer,
                       GetAllocationSliceForHlo(instr, {0}));
@@ -2521,12 +2550,13 @@ absl::Status IrEmitterUnnested::EmitRecvThunk(const HloRecvInstruction* instr) {
       send_recv_events_,
       ConvertFrontendAttributes(instr->frontend_attributes()),
       DeviceConstraint(instr)));
-
+#endif // TENSORFLOW_USE_SYCL
   return absl::OkStatus();
 }
 
 absl::Status IrEmitterUnnested::EmitRecvDoneThunk(
     const HloRecvDoneInstruction* instr) {
+#ifndef TENSORFLOW_USE_SYCL
   if (!instr->is_host_transfer()) {
     return EmitNcclAsyncDone(Thunk::kNcclRecvDone, instr);
   }
@@ -2537,7 +2567,7 @@ absl::Status IrEmitterUnnested::EmitRecvDoneThunk(
   AddThunkToThunkSequence(std::make_unique<RecvDoneThunk>(
       Thunk::ThunkInfo::WithProfileAnnotation(instr), *instr->channel_id(),
       send_recv_events_, DeviceConstraint(instr)));
-
+#endif // TENSORFLOW_USE_SYCL
   return absl::OkStatus();
 }
 
@@ -2670,10 +2700,22 @@ absl::Status IrEmitterUnnested::EmitHloInstruction(
     case HloOpcode::kCustomCall: {
       auto* custom_call = Cast<HloCustomCallInstruction>(instr);
       if (IsLegacyCublasMatmul(*instr)) {
+#if TENSORFLOW_USE_SYCL
+        const_cast<HloCustomCallInstruction*>(custom_call)
+            ->set_api_version(CustomCallApiVersion::API_VERSION_TYPED_FFI);
+        return EmitCustomCallThunk(custom_call);
+#else
         return EmitGemmThunk(custom_call);
+#endif // TENSORFLOW_USE_SYCL
       }
       if (IsCublasLtMatmul(*instr)) {
+#if TENSORFLOW_USE_SYCL
+        const_cast<HloCustomCallInstruction*>(custom_call)
+            ->set_api_version(CustomCallApiVersion::API_VERSION_TYPED_FFI);
+        return EmitCustomCallThunk(custom_call);
+#else
         return EmitCublasLtMatmulThunk(custom_call);
+#endif // TENSORFLOW_USE_SYCL
       }
       if (IsCublasLtMatmulF8(*instr)) {
         return EmitCublasLtMatmulThunkF8(custom_call);
@@ -2691,7 +2733,13 @@ absl::Status IrEmitterUnnested::EmitHloInstruction(
         return EmitTopKCustomCall(custom_call);
       }
       if (IsCustomCallToDnnConvolution(*instr)) {
+#ifdef TENSORFLOW_USE_SYCL
+        const_cast<HloCustomCallInstruction*>(custom_call)
+            ->set_api_version(CustomCallApiVersion::API_VERSION_TYPED_FFI);
+        return EmitCustomCallThunk(custom_call);
+#else
         return EmitConvolutionThunk(custom_call);
+#endif // TENSORFLOW_USE_SYCL
       }
       if (IsCustomCallToCusolver(*instr)) {
         return EmitCholeskyThunk(instr);
@@ -2699,9 +2747,11 @@ absl::Status IrEmitterUnnested::EmitHloInstruction(
       if (IsTriangularSolve(*instr)) {
         return EmitTriangularSolveCustomCall(instr);
       }
+#ifdef !TENSORFLOW_USE_SYCL
       if (IsCubDeviceRadixSort(*instr)) {
         return EmitCubDeviceRadixSort(custom_call);
       }
+#endif // TENSORFLOW_USE_SYCL
       if (custom_call->custom_call_target() == "PadToStatic") {
         return EmitPadToStatic(custom_call);
       }

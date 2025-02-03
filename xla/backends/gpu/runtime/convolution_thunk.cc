@@ -43,7 +43,11 @@ namespace xla {
 namespace gpu {
 
 ConvolutionThunk::ConvolutionThunk(
+#if TENSORFLOW_USE_SYCL
+    ThunkInfo thunk_info, GpuConvDescriptor descriptor,
+#else
     ThunkInfo thunk_info, GpuConvConfig config,
+#endif // TENSORFLOW_USE_SYCL
     std::vector<BufferAllocation::Slice> operand_slices,
     std::vector<BufferAllocation::Slice> result_slices,
     BufferAllocation::Slice scratch_slice)
@@ -51,8 +55,13 @@ ConvolutionThunk::ConvolutionThunk(
       operand_buffers_(std::move(operand_slices)),
       result_buffers_(std::move(result_slices)),
       scratch_buffer_(scratch_slice),
+#if TENSORFLOW_USE_SYCL
+      descriptor_(std::move(descriptor)) {}
+#else
       config_(std::move(config)) {}
+#endif // TENSORFLOW_USE_SYCL
 
+#if !TENSORFLOW_USE_SYCL
 GenericConvRunner& ConvolutionThunk::GetOrCreateRunner(
     const stream_executor::Stream* stream, bool* runner_created) {
   absl::MutexLock lock(&mu_);
@@ -65,6 +74,7 @@ GenericConvRunner& ConvolutionThunk::GetOrCreateRunner(
   }
   return *it->second;
 }
+#endif // !TENSORFLOW_USE_SYCL
 
 absl::Status ConvolutionThunk::ExecuteOnStream(const ExecuteParams& params) {
   const auto& buffer_allocations = *params.buffer_allocations;
@@ -83,6 +93,9 @@ absl::Status ConvolutionThunk::ExecuteOnStream(const ExecuteParams& params) {
   se::DeviceMemoryBase scratch =
       buffer_allocations.GetDeviceAddress(scratch_buffer_);
 
+#if TENSORFLOW_USE_SYCL
+  return absl::InternalError("After SYCL support FFI convolution, EmitConvolutionThunk should not be use.");
+#else
   bool runner_created = false;
   RunConvOptions opts;
   opts.runner_cache = &GetOrCreateRunner(params.stream, &runner_created);
@@ -122,7 +135,7 @@ absl::Status ConvolutionThunk::ExecuteOnStream(const ExecuteParams& params) {
   TF_RETURN_IF_ERROR(RunGpuConv(config_, absl::MakeSpan(operand_se_buffers),
                                 absl::MakeSpan(result_se_buffers), scratch,
                                 params.stream, opts));
-
+#endif // TENSORFLOW_USE_SYCL
   // Note: Convolution has a tuple buffer as an output, but we don't need to
   // populate it as no one should be reading from the tuple directly.
   if (!params.stream->ok()) {

@@ -46,6 +46,10 @@ GemmThunk::GemmThunk(ThunkInfo thunk_info, GemmConfig config,
       deterministic_(deterministic) {}
 
 absl::Status GemmThunk::ExecuteOnStream(const ExecuteParams& params) {
+#if TENSORFLOW_USE_SYCL
+  return absl::InternalError(
+      "After SYCL support FFI Gemm, EmitGemmThunk should not be use.");
+#endif // TENSORFLOW_USE_SYCL
   VLOG(3) << "Running GEMM thunk";
   const BufferAllocations& allocs = *params.buffer_allocations;
   se::DeviceMemoryBase workspace(/*opaque=*/nullptr, /*size=*/0);

@@ -194,6 +194,7 @@ cc_library(
     deps = [
         ":call_frame",
         "//xla:util",
+        "//xla/hlo/ir:hlo",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

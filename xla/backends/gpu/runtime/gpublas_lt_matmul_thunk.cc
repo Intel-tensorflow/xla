@@ -63,6 +63,11 @@ CublasLtMatmulThunk::CublasLtMatmulThunk(
       workspace_buffer_(workspace_buffer) {}
 
 absl::Status CublasLtMatmulThunk::ExecuteOnStream(const ExecuteParams& params) {
+#if TENSORFLOW_USE_SYCL
+  return absl::InternalError(
+      "After SYCL support FFI Matmul, EmitCublasLtMatmulThunk should not be "
+      "use.");
+#endif // TENSORFLOW_USE_SYCL
   TF_ASSIGN_OR_RETURN(auto plan, GetMatmulPlan(params.stream));
 
   TF_ASSIGN_OR_RETURN(
