@@ -676,9 +676,7 @@ Build(
         color="yes",
     ),
     repo_env={"USE_PYWRAP_RULES": "True"},
-    extra_setup_commands=(
-        ["nvidia-smi"],
-    ),
+    extra_setup_commands=(["nvidia-smi"],),
 )
 
 
