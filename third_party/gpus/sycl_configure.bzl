@@ -46,11 +46,14 @@ def _l0_library_path(sycl_config):
     return sycl_config.l0_library_dir
 
 def _repo_root(repository_ctx, repo_name):
-    # e.g. repo_name = "@sycl_hermetic"
-    return str(repository_ctx.path(Label("%s//:BUILD" % repo_name)).dirname)
-
+    # Resolve the external repo root without requiring an existing BUILD label.
+    # We rely on a known file path; prefer 'compiler' then 'mkl', otherwise repo dir.
+    # NOTE: This works both inside/outside Docker.
+    base = str(repository_ctx.path(Label("%s//:WORKSPACE" % repo_name)).dirname)
+    return base
 
 def _emit_wrapper(repository_ctx, relpath, target_execroot_rel):
+    # Write an executable file (not a template) so Docker can exec it from execroot.
     repository_ctx.file(
         relpath,
         content = """#!/bin/sh
@@ -58,6 +61,32 @@ exec "$PWD/%s" "$@"
 """ % target_execroot_rel,
         executable = True,
     )
+
+def _exists(repository_ctx, p):
+    return repository_ctx.path(p).exists
+
+def _pick_first_existing(repository_ctx, candidates):
+    for host_path, execroot_rel in candidates:
+        if _exists(repository_ctx, host_path):
+            return execroot_rel
+    return None
+
+def _pick_hermetic_compiler_bin(repository_ctx, install_path):
+    # Try common oneAPI layouts. We return the EXECROOT-RELATIVE bin path.
+    return _pick_first_existing(repository_ctx, [
+        (install_path + "/compiler/2025.1/linux/bin", "external/sycl_hermetic/compiler/2025.1/linux/bin"),
+        (install_path + "/compiler/2025.1/bin",       "external/sycl_hermetic/compiler/2025.1/bin"),
+        (install_path + "/compiler/latest/linux/bin", "external/sycl_hermetic/compiler/latest/linux/bin"),
+        (install_path + "/compiler/latest/bin",       "external/sycl_hermetic/compiler/latest/bin"),
+        (install_path + "/bin",                       "external/sycl_hermetic/bin"),
+    ])
+
+def _ld_flags(repository_ctx):
+    # Prefer system lld if it exists inside container/host; else rely on -B to hermetic bin
+    if _exists(repository_ctx, "/usr/bin/ld.lld"):
+        return ("-fuse-ld=lld", "-B/usr/bin")
+    # fallback: caller will add a -B<herm_bin> that contains ld.lld (if shipped)
+    return ("-fuse-ld=lld", None)
 
 
 def _sycl_header_path(repository_ctx, sycl_config, bash_bin):
@@ -509,63 +538,103 @@ def _create_local_sycl_repository(repository_ctx):
         "sycl:BUILD",
         "crosstool:BUILD.sycl",
         "crosstool:sycl_cc_toolchain_config.bzl",
-        "crosstool:clang/bin/crosstool_wrapper_driver_sycl",
-        "crosstool:clang/bin/ar_driver_sycl",
+        # We will NOT template these two to avoid overwriting real wrappers:
+        # "crosstool:clang/bin/crosstool_wrapper_driver_sycl",
+        # "crosstool:clang/bin/ar_driver_sycl",
     ]}
 
     bash_bin = get_bash_bin(repository_ctx)
 
     hermetic = get_host_environ(repository_ctx, "SYCL_BUILD_HERMETIC", "") == "1"
     if hermetic:
-        # Use the pre-fetched external repo from WORKSPACE.
+        # Use the pre-fetched external repo from WORKSPACE (@sycl_hermetic)
         install_path = _repo_root(repository_ctx, "@sycl_hermetic")
 
+        # Point config at the real header/lib locations inside the redist
         sycl_config = struct(
             sycl_basekit_path = install_path,  # repo root
-
-            # oneAPI compiler lives under compiler/<version>;
-            # headers in compiler/<version>/include or compiler/<version>/linux/include
+            # Headers under compiler/<ver>/(include|linux/include)
             sycl_toolkit_path = install_path + "/compiler/2025.1",
-
             sycl_version_number = "80000",
             sycl_basekit_version_number = "2025.1",
-
-            # MKL headers/libs live under mkl/<version>/...
-            mkl_include_dir  = install_path + "/mkl/2025.1/include",
-            # choose the lib dir your tar provides; often lib/intel64
-            mkl_library_dir  = install_path + "/mkl/2025.1/lib/intel64",
-
-            # Level Zero headers/libs; adjust if your tar layout differs
-            l0_include_dir   = install_path + "/compiler/2025.1/linux/include/level_zero",
-            l0_library_dir   = install_path + "/compiler/2025.1/linux/lib",
+            # MKL headers/libs under mkl/<ver>/...
+            mkl_include_dir = install_path + "/mkl/2025.1/include",
+            mkl_library_dir = install_path + "/mkl/2025.1/lib/intel64",
+            # Level Zero headers/libs (adjust if your redist differs)
+            l0_include_dir = install_path + "/compiler/2025.1/linux/include/level_zero",
+            l0_library_dir = install_path + "/compiler/2025.1/linux/lib",
         )
     else:
+        # Non-hermetic path: detect host oneAPI installation
         install_path = get_host_environ(repository_ctx, "SYCL_TOOLKIT_PATH", "") or "/opt/intel/oneapi/compiler/2025.1"
         repository_ctx.report_progress("Falling back to default SYCL path: %s" % install_path)
         sycl_config = _get_sycl_config(repository_ctx, bash_bin)
 
-    # ---- Wrappers that Bazel will exec inside the sandbox ----
-    herm_bin = "external/sycl_hermetic/bin"
+    # ---------------- Wrappers Bazel will exec ----------------
+    if hermetic:
+        # Find hermetic compiler bin inside @sycl_hermetic
+        herm_bin = _pick_hermetic_compiler_bin(repository_ctx, install_path)
+        if herm_bin == None:
+            fail("sycl_configure: could not locate oneAPI compiler bin in @sycl_hermetic")
+        use_hermetic_ld_flags = _ld_flags(repository_ctx)
+        ld_fuse, ld_B = use_hermetic_ld_flags
 
-    # Archiver wrapper (use hermetic llvm-ar from @sycl_hermetic)
-    _emit_wrapper(
-        repository_ctx,
-        "crosstool/clang/bin/ar_driver_sycl",
-        herm_bin + "/llvm-ar",
-    )
+        # ar (llvm-ar) from hermetic payload
+        _emit_wrapper(
+            repository_ctx,
+            "crosstool/clang/bin/ar_driver_sycl",
+            herm_bin + "/llvm-ar",
+        )
 
-    # Main C/C++ driver wrapper: force LLD, and have clang find /usr/bin/ld.lld via -B
-    repository_ctx.file(
-        "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
-        content = """#!/bin/sh
+        # icx wrapper; always pass -fuse-ld=lld; prefer system /usr/bin if present, else rely on -B<herm_bin>
+        extra = [ld_fuse]
+        if ld_B:
+            extra.append(ld_B)
+        else:
+            extra.append("-B$PWD/%s" % herm_bin)  # ld.lld shipped in the hermetic bin
+
+        repository_ctx.file(
+            "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
+            content = """#!/bin/sh
 set -e
-EXTRA="-fuse-ld=lld -B/usr/bin"
-exec "$PWD/%s/icx" $EXTRA "$@"
-""" % herm_bin,
-        executable = True,
-    )
+exec "$PWD/%s/icx" %s "$@"
+""" % (herm_bin, " ".join(extra)),
+            executable = True,
+        )
 
-    # ---- Copy headers / libs into execroot ----
+    else:
+        # Non-hermetic: use host tools (icx/llvm-ar) discovered via PATH or env.
+        # Resolve icx and llvm-ar at repo rule time
+        icx = which(repository_ctx, "icx") or which(repository_ctx, "icpx")
+        ar  = which(repository_ctx, "llvm-ar") or which(repository_ctx, "ar")
+        if icx == None or ar == None:
+            fail("sycl_configure (non-hermetic): cannot find icx/icpx and/or llvm-ar on PATH")
+
+        use_sys_ld = _ld_flags(repository_ctx)  # may or may not return -B/usr/bin
+        ld_fuse, ld_B = use_sys_ld
+
+        # ar wrapper to host ar
+        _emit_wrapper(
+            repository_ctx,
+            "crosstool/clang/bin/ar_driver_sycl",
+            str(repository_ctx.path(ar).relativize(repository_ctx.path("."))),
+        )
+
+        # icx wrapper to host icx + system lld (if available)
+        extra = [ld_fuse]
+        if ld_B:
+            extra.append(ld_B)
+
+        repository_ctx.file(
+            "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
+            content = """#!/bin/sh
+set -e
+exec "%s" %s "$@"
+""" % (str(repository_ctx.path(icx)), " ".join(extra)),
+            executable = True,
+        )
+
+    # ---------------- Copy headers / libs to execroot ----------------
     copy_rules = [
         make_copy_dir_rule(
             repository_ctx,
@@ -600,7 +669,7 @@ exec "$PWD/%s/icx" $EXTRA "$@"
         outs = sycl_lib_outs,
     ))
 
-    # ---- sycl/ BUILD + defs ----
+    # ---------------- sycl/ BUILD + defs ----------------
     repository_ctx.template(
         "sycl/build_defs.bzl",
         tpl_paths["sycl:build_defs.bzl"],
@@ -648,7 +717,7 @@ exec "$PWD/%s/icx" $EXTRA "$@"
         },
     )
 
-    # ---- crosstool/ config ----
+    # ---------------- crosstool/ config ----------------
     is_icpx_and_clang = _use_icpx_and_clang(repository_ctx)
     cc = find_cc(repository_ctx)
 
@@ -667,7 +736,7 @@ exec "$PWD/%s/icx" $EXTRA "$@"
 
     sycl_defines["%{ar_path}"] = "clang/bin/ar_driver_sycl"
     sycl_defines["%{cpu_compiler}"] = str(cc)
-    sycl_defines["%{linker_bin_path}"] = "/usr/bin"
+    sycl_defines["%{linker_bin_path}"] = "/usr/bin"  # valid in both Docker and host installs (when present)
 
     sycl_internal_inc_dirs = find_sycl_include_path(repository_ctx, sycl_config)
     cxx_builtin_includes_list = sycl_internal_inc_dirs + _sycl_include_path(repository_ctx, sycl_config, bash_bin) + host_compiler_includes
@@ -682,7 +751,6 @@ exec "$PWD/%s/icx" $EXTRA "$@"
     sycl_defines["%{basekit_path}"]      = str(sycl_config.sycl_basekit_path)
     sycl_defines["%{basekit_version}"]   = str(sycl_config.sycl_basekit_version_number)
 
-    # BUILD + cc_toolchain_config (do NOT overwrite the wrapper files we wrote)
     repository_ctx.template(
         "crosstool/BUILD",
         tpl_paths["crosstool:BUILD.sycl"],
@@ -694,9 +762,10 @@ exec "$PWD/%s/icx" $EXTRA "$@"
         sycl_defines,
     )
 
-    # NOTE: intentionally NOT templating these two, since we wrote real wrappers above:
+    # IMPORTANT: do NOT template-wrapper files; we already wrote executable wrappers:
     # - crosstool/clang/bin/crosstool_wrapper_driver_sycl
     # - crosstool/clang/bin/ar_driver_sycl
+
 
       
 def _sycl_autoconf_imp(repository_ctx):
