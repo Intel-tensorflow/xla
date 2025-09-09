@@ -507,32 +507,24 @@ def _create_local_sycl_repository(repository_ctx):
 
     hermetic = get_host_environ(repository_ctx, "SYCL_BUILD_HERMETIC", "") == "1"
     if hermetic:
-        # Detect oneAPI BaseKit from @sycl_hermetic (works in/out of Docker)
         install_path = _repo_root(repository_ctx, "@sycl_hermetic")
+        oneapi_version = get_host_environ(repository_ctx, "ONEAPI_VERSION", "2025.1").strip() or "2025.1"
 
-        # Paths inside the redist (adjust if your tar layout differs)
         sycl_config = struct(
-            sycl_basekit_path = install_path,                      # repo root
-            # Headers live under compiler/<ver>/include or compiler/<ver>/linux/include
-            sycl_toolkit_path = install_path + "/compiler/2025.1",
+            sycl_basekit_path = install_path + "/oneapi",
+            sycl_toolkit_path = install_path + "/oneapi/compiler/" + oneapi_version,
             sycl_version_number = "80000",
-            sycl_basekit_version_number = "2025.1",
-
-            # MKL headers/libs under mkl/<ver>/...
-            mkl_include_dir = install_path + "/mkl/2025.1/include",
-            mkl_library_dir = install_path + "/mkl/2025.1/lib/intel64",  # adjust if lib dir differs
-
-            # Level Zero headers/libs (update if your redist differs)
-            l0_include_dir = install_path + "/compiler/2025.1/linux/include/level_zero",
-            l0_library_dir = install_path + "/compiler/2025.1/linux/lib",
+            sycl_basekit_version_number = oneapi_version,
+            mkl_include_dir = install_path + "/oneapi/mkl/" + oneapi_version + "/include",
+            mkl_library_dir = install_path + "/oneapi/mkl/" + oneapi_version + "/lib",
+            l0_include_dir = install_path + "/level-zero-1.21.10/include",
+            l0_library_dir = install_path + "/lib",
         )
     else:
-        # Non-hermetic: detect oneAPI on the host (same logic works with/without Docker)
+        # Non-hermetic: detect oneAPI on the host
         install_path = get_host_environ(repository_ctx, "SYCL_TOOLKIT_PATH", "") or "/opt/intel/oneapi/compiler/2025.1"
         repository_ctx.report_progress("Falling back to default SYCL path: %s" % install_path)
         sycl_config = _get_sycl_config(repository_ctx, bash_bin)
-
-    # ---------------- Copy headers / libs into execroot ----------------
     copy_rules = [
         make_copy_dir_rule(
             repository_ctx,
@@ -566,8 +558,6 @@ def _create_local_sycl_repository(repository_ctx):
         srcs = sycl_lib_srcs,
         outs = sycl_lib_outs,
     ))
-
-    # ---------------- sycl/ BUILD + defs ----------------
     repository_ctx.template(
         "sycl/build_defs.bzl",
         tpl_paths["sycl:build_defs.bzl"],
@@ -615,7 +605,6 @@ def _create_local_sycl_repository(repository_ctx):
         },
     )
 
-    # ---------------- crosstool/ config ----------------
     is_icpx_and_clang = _use_icpx_and_clang(repository_ctx)
     cc = find_cc(repository_ctx)
 
