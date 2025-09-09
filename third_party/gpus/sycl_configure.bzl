@@ -45,6 +45,19 @@ def _l0_include_path(sycl_config):
 def _l0_library_path(sycl_config):
     return sycl_config.l0_library_dir
 
+def _repo_root(repository_ctx, repo_name):
+    # e.g. repo_name = "@sycl_hermetic"
+    return str(repository_ctx.path(Label("%s//:BUILD" % repo_name)).dirname)
+
+def _emit_wrapper(repository_ctx, relpath, target_execroot_rel):
+    repository_ctx.file(
+        relpath,
+        content = """#!/bin/sh
+exec "$PWD/%s" "$@"
+""" % target_execroot_rel,
+        executable = True,
+    )
+
 def _sycl_header_path(repository_ctx, sycl_config, bash_bin):
     sycl_header_path = sycl_config.sycl_toolkit_path
     include_dir = sycl_header_path + "/include"
@@ -502,45 +515,42 @@ def _create_local_sycl_repository(repository_ctx):
 
     hermetic = get_host_environ(repository_ctx, "SYCL_BUILD_HERMETIC", "") == "1"
     if hermetic:
-        oneapi_version = get_host_environ(repository_ctx, "ONEAPI_VERSION", "")
-        os_id = get_host_environ(repository_ctx, "OS", "")
-        if not oneapi_version or not os_id:
-            fail("ONEAPI_VERSION and OS must be set via --repo_env for hermetic build.")
-        redist_info = sycl_redist.get(os_id, {}).get(oneapi_version, {}).get("sycl_dl_essential")
-        if not redist_info:
-            fail("Missing redistributable definition for %s on %s" % (oneapi_version, os_id))
-        archive_info = redist_info["archives"][0]
-        install_path = str(repository_ctx.path(redist_info["root"]))
-        _download_and_extract_archive(repository_ctx, archive_info, install_path)
-
-        # Added: Download Level Zero redistributable if defined
-        level_zero_info = level_zero_redist.get(os_id, {}).get(oneapi_version, {}).get("level_zero")
-        if level_zero_info:
-            repository_ctx.report_progress("Downloading Level Zero for hermetic build.")
-
-            for archive in level_zero_info["archives"]:
-                _download_and_extract_archive(repository_ctx, archive, install_path)
-
-        else:
-            repository_ctx.report_progress("No Level Zero redistributable defined for %s on %s" % (oneapi_version, os_id))
-
+        # Use the pre-fetched external repo from WORKSPACE:
+        install_path = _repo_root(repository_ctx, "@sycl_hermetic")
+        # Your tar’s strip_prefix makes `external/sycl_hermetic/` the 2025.1 root
+        # (bin/, lib/, include/ present there).
         sycl_config = struct(
-            sycl_basekit_path = install_path + "/oneapi/",
-            sycl_toolkit_path = install_path + "/oneapi/compiler/" + oneapi_version,
-            # TODO(Intel)
-            # hard coded for this oneAPI version 2025.1,
-            # change to auto-detect the sycl_version_number
-            sycl_version_number = "80000",
-            sycl_basekit_version_number = oneapi_version,
-            mkl_include_dir = install_path + "/oneapi/mkl/" + oneapi_version + "/include",
-            mkl_library_dir = install_path + "/oneapi/mkl/" + oneapi_version + "/lib",
-            l0_include_dir = install_path + "/level-zero-1.21.10/include",
+            sycl_basekit_path = install_path,                # repo root
+            sycl_toolkit_path = install_path,                # same root
+            sycl_version_number = "80000",                   # keep your current placeholder
+            sycl_basekit_version_number = "2025.1",          # matches the tar you use
+            mkl_include_dir = install_path + "/mkl/include", # adjust if your tar differs
+            mkl_library_dir = install_path + "/mkl/lib",     # (lib or lib/intel64 as needed)
+            l0_include_dir = install_path + "/include/level_zero",
             l0_library_dir = install_path + "/lib",
         )
     else:
         install_path = get_host_environ(repository_ctx, "SYCL_TOOLKIT_PATH", "") or "/opt/intel/oneapi/compiler/2025.1"
         repository_ctx.report_progress("Falling back to default SYCL path: %s" % install_path)
         sycl_config = _get_sycl_config(repository_ctx, bash_bin)
+
+    herm_bin = "external/sycl_hermetic/bin"
+  
+  # Archiver wrapper (uses hermetic llvm-ar from @sycl_hermetic)
+  _emit_wrapper(repository_ctx,
+                "crosstool/clang/bin/ar_driver_sycl",
+                herm_bin + "/llvm-ar")
+  
+  # Main C/C++ driver wrapper: force LLD and make clang find /usr/bin/ld.lld via -B
+  repository_ctx.file(
+      "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
+      content = """#!/bin/sh
+  set -e
+  EXTRA="-fuse-ld=lld -B/usr/bin"
+  exec "$PWD/%s/icx" $EXTRA "$@"
+  """ % herm_bin,
+      executable = True,
+  )
 
     # Copy header and library files to execroot.
     copy_rules = [
