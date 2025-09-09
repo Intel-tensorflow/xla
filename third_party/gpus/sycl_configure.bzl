@@ -49,6 +49,7 @@ def _repo_root(repository_ctx, repo_name):
     # e.g. repo_name = "@sycl_hermetic"
     return str(repository_ctx.path(Label("%s//:BUILD" % repo_name)).dirname)
 
+
 def _emit_wrapper(repository_ctx, relpath, target_execroot_rel):
     repository_ctx.file(
         relpath,
@@ -57,6 +58,7 @@ exec "$PWD/%s" "$@"
 """ % target_execroot_rel,
         executable = True,
     )
+
 
 def _sycl_header_path(repository_ctx, sycl_config, bash_bin):
     sycl_header_path = sycl_config.sycl_toolkit_path
@@ -515,57 +517,55 @@ def _create_local_sycl_repository(repository_ctx):
 
     hermetic = get_host_environ(repository_ctx, "SYCL_BUILD_HERMETIC", "") == "1"
     if hermetic:
-        # Use the pre-fetched external repo from WORKSPACE:
+        # Use the pre-fetched external repo from WORKSPACE.
         install_path = _repo_root(repository_ctx, "@sycl_hermetic")
-        # Your tar’s strip_prefix makes `external/sycl_hermetic/` the 2025.1 root
-        # (bin/, lib/, include/ present there).
-        sycl_config = struct(
-        sycl_basekit_path = install_path,  # repo root
-    
-        # oneAPI compiler lives under compiler/<version>; headers are in
-        # compiler/<version>/include or compiler/<version>/linux/include
-        sycl_toolkit_path = install_path + "/compiler/2025.1",
-    
-        sycl_version_number = "80000",
-        sycl_basekit_version_number = "2025.1",
-    
-        # MKL headers/libs live under mkl/<version>/...
-        mkl_include_dir = install_path + "/mkl/2025.1/include",
-    
-        # choose the lib dir your tar provides; often lib/intel64
-        mkl_library_dir = install_path + "/mkl/2025.1/lib/intel64",
-    
-        # Level Zero headers/libs; adjust if your tar layout differs
-        l0_include_dir = install_path + "/compiler/2025.1/linux/include/level_zero",
-        l0_library_dir = install_path + "/compiler/2025.1/linux/lib",
-    )
 
+        sycl_config = struct(
+            sycl_basekit_path = install_path,  # repo root
+
+            # oneAPI compiler lives under compiler/<version>;
+            # headers in compiler/<version>/include or compiler/<version>/linux/include
+            sycl_toolkit_path = install_path + "/compiler/2025.1",
+
+            sycl_version_number = "80000",
+            sycl_basekit_version_number = "2025.1",
+
+            # MKL headers/libs live under mkl/<version>/...
+            mkl_include_dir  = install_path + "/mkl/2025.1/include",
+            # choose the lib dir your tar provides; often lib/intel64
+            mkl_library_dir  = install_path + "/mkl/2025.1/lib/intel64",
+
+            # Level Zero headers/libs; adjust if your tar layout differs
+            l0_include_dir   = install_path + "/compiler/2025.1/linux/include/level_zero",
+            l0_library_dir   = install_path + "/compiler/2025.1/linux/lib",
+        )
     else:
         install_path = get_host_environ(repository_ctx, "SYCL_TOOLKIT_PATH", "") or "/opt/intel/oneapi/compiler/2025.1"
         repository_ctx.report_progress("Falling back to default SYCL path: %s" % install_path)
         sycl_config = _get_sycl_config(repository_ctx, bash_bin)
 
+    # ---- Wrappers that Bazel will exec inside the sandbox ----
     herm_bin = "external/sycl_hermetic/bin"
 
-    # Archiver wrapper (uses hermetic llvm-ar from @sycl_hermetic)
+    # Archiver wrapper (use hermetic llvm-ar from @sycl_hermetic)
     _emit_wrapper(
         repository_ctx,
         "crosstool/clang/bin/ar_driver_sycl",
         herm_bin + "/llvm-ar",
     )
 
-    # Main C/C++ driver wrapper: force LLD and make clang find /usr/bin/ld.lld via -B
+    # Main C/C++ driver wrapper: force LLD, and have clang find /usr/bin/ld.lld via -B
     repository_ctx.file(
         "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
         content = """#!/bin/sh
-    set -e
-    EXTRA="-fuse-ld=lld -B/usr/bin"
-    exec "$PWD/%s/icx" $EXTRA "$@"
-    """ % herm_bin,
-            executable = True,
-        )
+set -e
+EXTRA="-fuse-ld=lld -B/usr/bin"
+exec "$PWD/%s/icx" $EXTRA "$@"
+""" % herm_bin,
+        executable = True,
+    )
 
-    # Copy header and library files to execroot.
+    # ---- Copy headers / libs into execroot ----
     copy_rules = [
         make_copy_dir_rule(
             repository_ctx,
@@ -574,7 +574,6 @@ def _create_local_sycl_repository(repository_ctx):
             out_dir = "sycl/include",
         ),
     ]
-
     copy_rules.append(make_copy_dir_rule(
         repository_ctx,
         name = "mkl-include",
@@ -601,7 +600,7 @@ def _create_local_sycl_repository(repository_ctx):
         outs = sycl_lib_outs,
     ))
 
-    # Set up BUILD file for sycl/
+    # ---- sycl/ BUILD + defs ----
     repository_ctx.template(
         "sycl/build_defs.bzl",
         tpl_paths["sycl:build_defs.bzl"],
@@ -612,11 +611,9 @@ def _create_local_sycl_repository(repository_ctx):
     )
 
     if sycl_config.sycl_basekit_version_number < "2024":
-        mkl_sycl_libs = '"{}"'.format(
-            "sycl/lib/" + sycl_libs["mkl_sycl"].file_name,
-        )
+        mkl_sycl_libs = '"%s"' % ("sycl/lib/" + sycl_libs["mkl_sycl"].file_name)
     else:
-        mkl_sycl_libs = '"{}",\n"{}",\n"{}",\n"{}",\n"{}",\n"{}",\n"{}",\n"{}",\n'.format(
+        mkl_sycl_libs = '"%s",\n"%s",\n"%s",\n"%s",\n"%s",\n"%s",\n"%s",\n"%s",\n' % (
             "sycl/lib/" + sycl_libs["mkl_sycl_blas"].file_name,
             "sycl/lib/" + sycl_libs["mkl_sycl_lapack"].file_name,
             "sycl/lib/" + sycl_libs["mkl_sycl_sparse"].file_name,
@@ -626,42 +623,40 @@ def _create_local_sycl_repository(repository_ctx):
             "sycl/lib/" + sycl_libs["mkl_sycl_stats"].file_name,
             "sycl/lib/" + sycl_libs["mkl_sycl_data_fitting"].file_name,
         )
-    level_zero_libs = '"{}",\n'.format("sycl/lib/" + sycl_libs["ze_loader"].file_name)
+
+    level_zero_libs = '"%s",\n' % ("sycl/lib/" + sycl_libs["ze_loader"].file_name)
 
     def _fmt_src(path):
         return '"%s",\n' % path
 
-    repository_dict = {
-        # New placeholders used by the template
-        "%{mkl_intel_ilp64_src}": _fmt_src("sycl/lib/" + sycl_libs["mkl_intel_ilp64"].file_name),
-        "%{mkl_sequential_src}": _fmt_src("sycl/lib/" + sycl_libs["mkl_sequential"].file_name),
-        "%{mkl_core_src}": _fmt_src("sycl/lib/" + sycl_libs["mkl_core"].file_name),
-        "%{mkl_sycl_srcs}": mkl_sycl_libs,
-        "%{mkl_intel_ilp64_lib}": sycl_libs["mkl_intel_ilp64"].file_name,
-        "%{mkl_sequential_lib}": sycl_libs["mkl_sequential"].file_name,
-        "%{mkl_core_lib}": sycl_libs["mkl_core"].file_name,
-        "%{mkl_sycl_libs}": mkl_sycl_libs,
-        "%{copy_rules}": "\n".join(copy_rules),
-        "%{sycl_headers}": '":mkl-include",\n":sycl-include",\n',
-        "%{level_zero_libs}": level_zero_libs,
-        "%{level_zero_headers}": '":level-zero-include"',
-    }
     repository_ctx.template(
         "sycl/BUILD",
         tpl_paths["sycl:BUILD"],
-        repository_dict,
+        {
+            "%{mkl_intel_ilp64_src}": _fmt_src("sycl/lib/" + sycl_libs["mkl_intel_ilp64"].file_name),
+            "%{mkl_sequential_src}": _fmt_src("sycl/lib/" + sycl_libs["mkl_sequential"].file_name),
+            "%{mkl_core_src}":      _fmt_src("sycl/lib/" + sycl_libs["mkl_core"].file_name),
+            "%{mkl_sycl_srcs}":     mkl_sycl_libs,
+            "%{mkl_intel_ilp64_lib}": sycl_libs["mkl_intel_ilp64"].file_name,
+            "%{mkl_sequential_lib}":  sycl_libs["mkl_sequential"].file_name,
+            "%{mkl_core_lib}":        sycl_libs["mkl_core"].file_name,
+            "%{mkl_sycl_libs}":       mkl_sycl_libs,
+            "%{copy_rules}":          "\n".join(copy_rules),
+            "%{sycl_headers}":        '":mkl-include",\n":sycl-include",\n',
+            "%{level_zero_libs}":     level_zero_libs,
+            "%{level_zero_headers}":  '":level-zero-include"',
+        },
     )
 
-    # Set up crosstool/
+    # ---- crosstool/ config ----
     is_icpx_and_clang = _use_icpx_and_clang(repository_ctx)
     cc = find_cc(repository_ctx)
 
     host_compiler_includes = get_cxx_inc_directories(repository_ctx, cc)
     clang_host_compiler_prefix = get_host_environ(repository_ctx, _CLANG_HOST_COMPILER_PREFIX, "/usr/bin")
-    gcc_host_compiler_prefix = get_host_environ(repository_ctx, _GCC_HOST_COMPILER_PREFIX, "/usr/bin")
+    gcc_host_compiler_prefix   = get_host_environ(repository_ctx, _GCC_HOST_COMPILER_PREFIX, "/usr/bin")
 
     sycl_defines = {}
-
     sycl_defines["%{host_compiler_path}"] = "clang/bin/crosstool_wrapper_driver_sycl"
     if is_icpx_and_clang:
         sycl_defines["%{extra_no_canonical_prefixes_flags}"] = "\"-no-canonical-prefixes\""
@@ -683,36 +678,27 @@ def _create_local_sycl_repository(repository_ctx):
         "-fPIC",
     ])
     sycl_defines["%{sycl_compiler_root}"] = str(sycl_config.sycl_toolkit_path)
-    sycl_defines["%{SYCL_ROOT_DIR}"] = str(sycl_config.sycl_toolkit_path)
-    sycl_defines["%{basekit_path}"] = str(sycl_config.sycl_basekit_path)
-    sycl_defines["%{basekit_version}"] = str(sycl_config.sycl_basekit_version_number)
+    sycl_defines["%{SYCL_ROOT_DIR}"]     = str(sycl_config.sycl_toolkit_path)
+    sycl_defines["%{basekit_path}"]      = str(sycl_config.sycl_basekit_path)
+    sycl_defines["%{basekit_version}"]   = str(sycl_config.sycl_basekit_version_number)
 
-    # Only expand template variables in the BUILD file
+    # BUILD + cc_toolchain_config (do NOT overwrite the wrapper files we wrote)
     repository_ctx.template(
         "crosstool/BUILD",
         tpl_paths["crosstool:BUILD.sycl"],
         sycl_defines,
     )
-
-    # No templating of cc_toolchain_config - use attributes and templatize the
-    # BUILD file.
     repository_ctx.template(
         "crosstool/cc_toolchain_config.bzl",
         tpl_paths["crosstool:sycl_cc_toolchain_config.bzl"],
         sycl_defines,
     )
 
-    repository_ctx.template(
-        "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
-        tpl_paths["crosstool:clang/bin/crosstool_wrapper_driver_sycl"],
-        sycl_defines,
-    )
-    repository_ctx.template(
-        "crosstool/clang/bin/ar_driver_sycl",
-        tpl_paths["crosstool:clang/bin/ar_driver_sycl"],
-        sycl_defines,
-    )
+    # NOTE: intentionally NOT templating these two, since we wrote real wrappers above:
+    # - crosstool/clang/bin/crosstool_wrapper_driver_sycl
+    # - crosstool/clang/bin/ar_driver_sycl
 
+      
 def _sycl_autoconf_imp(repository_ctx):
     """Implementation of the sycl_autoconf rule."""
     if not enable_sycl(repository_ctx):
