@@ -535,22 +535,24 @@ def _create_local_sycl_repository(repository_ctx):
         sycl_config = _get_sycl_config(repository_ctx, bash_bin)
 
     herm_bin = "external/sycl_hermetic/bin"
-  
-  # Archiver wrapper (uses hermetic llvm-ar from @sycl_hermetic)
-  _emit_wrapper(repository_ctx,
-                "crosstool/clang/bin/ar_driver_sycl",
-                herm_bin + "/llvm-ar")
-  
-  # Main C/C++ driver wrapper: force LLD and make clang find /usr/bin/ld.lld via -B
-  repository_ctx.file(
-      "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
-      content = """#!/bin/sh
-  set -e
-  EXTRA="-fuse-ld=lld -B/usr/bin"
-  exec "$PWD/%s/icx" $EXTRA "$@"
-  """ % herm_bin,
-      executable = True,
-  )
+
+    # Archiver wrapper (uses hermetic llvm-ar from @sycl_hermetic)
+    _emit_wrapper(
+        repository_ctx,
+        "crosstool/clang/bin/ar_driver_sycl",
+        herm_bin + "/llvm-ar",
+    )
+
+    # Main C/C++ driver wrapper: force LLD and make clang find /usr/bin/ld.lld via -B
+    repository_ctx.file(
+        "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
+        content = """#!/bin/sh
+    set -e
+    EXTRA="-fuse-ld=lld -B/usr/bin"
+    exec "$PWD/%s/icx" $EXTRA "$@"
+    """ % herm_bin,
+            executable = True,
+        )
 
     # Copy header and library files to execroot.
     copy_rules = [
@@ -561,6 +563,7 @@ def _create_local_sycl_repository(repository_ctx):
             out_dir = "sycl/include",
         ),
     ]
+
     copy_rules.append(make_copy_dir_rule(
         repository_ctx,
         name = "mkl-include",
