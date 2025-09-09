@@ -46,14 +46,13 @@ def _l0_library_path(sycl_config):
     return sycl_config.l0_library_dir
 
 def _sycl_header_path(repository_ctx, sycl_config, bash_bin):
+    # Only accept <toolkit>/include (your bundle never uses linux/include)
     sycl_header_path = sycl_config.sycl_toolkit_path
     include_dir = sycl_header_path + "/include"
     if not files_exist(repository_ctx, [include_dir], bash_bin)[0]:
-        sycl_header_path = sycl_header_path + "/linux"
-        include_dir = sycl_header_path + "/include"
-        if not files_exist(repository_ctx, [include_dir], bash_bin)[0]:
-            auto_configure_fail("Cannot find sycl headers in {}".format(include_dir))
+        auto_configure_fail("Cannot find SYCL headers at %s" % include_dir)
     return sycl_header_path
+
 
 def _sycl_include_path(repository_ctx, sycl_config, bash_bin):
     """Generates the cxx_builtin_include_directory entries for sycl inc dirs.
