@@ -520,15 +520,26 @@ def _create_local_sycl_repository(repository_ctx):
         # Your tar’s strip_prefix makes `external/sycl_hermetic/` the 2025.1 root
         # (bin/, lib/, include/ present there).
         sycl_config = struct(
-            sycl_basekit_path = install_path,                # repo root
-            sycl_toolkit_path = install_path,                # same root
-            sycl_version_number = "80000",                   # keep your current placeholder
-            sycl_basekit_version_number = "2025.1",          # matches the tar you use
-            mkl_include_dir = install_path + "/mkl/include", # adjust if your tar differs
-            mkl_library_dir = install_path + "/mkl/lib",     # (lib or lib/intel64 as needed)
-            l0_include_dir = install_path + "/include/level_zero",
-            l0_library_dir = install_path + "/lib",
-        )
+        sycl_basekit_path = install_path,  # repo root
+    
+        # oneAPI compiler lives under compiler/<version>; headers are in
+        # compiler/<version>/include or compiler/<version>/linux/include
+        sycl_toolkit_path = install_path + "/compiler/2025.1",
+    
+        sycl_version_number = "80000",
+        sycl_basekit_version_number = "2025.1",
+    
+        # MKL headers/libs live under mkl/<version>/...
+        mkl_include_dir = install_path + "/mkl/2025.1/include",
+    
+        # choose the lib dir your tar provides; often lib/intel64
+        mkl_library_dir = install_path + "/mkl/2025.1/lib/intel64",
+    
+        # Level Zero headers/libs; adjust if your tar layout differs
+        l0_include_dir = install_path + "/compiler/2025.1/linux/include/level_zero",
+        l0_library_dir = install_path + "/compiler/2025.1/linux/lib",
+    )
+
     else:
         install_path = get_host_environ(repository_ctx, "SYCL_TOOLKIT_PATH", "") or "/opt/intel/oneapi/compiler/2025.1"
         repository_ctx.report_progress("Falling back to default SYCL path: %s" % install_path)
