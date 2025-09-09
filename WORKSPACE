@@ -151,7 +151,7 @@ http_archive(
     name = "sycl_hermetic",
     urls = ["https://tensorflow-file-hosting.s3.us-east-1.amazonaws.com/intel-oneapi-base-toolkit-2025.1.3.7.tar.gz"],
     sha256 = "2213104bd122336551aa144512e7ab99e4a84220e77980b5f346edc14ebd458a",
-    strip_prefix = "oneapi/oneapi-base-toolkit/2025.1",
+    strip_prefix = "oneapi",
     build_file_content = "package(default_visibility=[\"//visibility:public\"])\n",
 )
 
