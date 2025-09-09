@@ -51,13 +51,11 @@ def _repo_root(repository_ctx, repo_name):
     return str(repository_ctx.path(Label("%s//:BUILD" % repo_name)).dirname)
 
 def _sycl_header_path(repository_ctx, sycl_config, bash_bin):
+    # Only accept <toolkit>/include (your bundle never uses linux/include)
     sycl_header_path = sycl_config.sycl_toolkit_path
     include_dir = sycl_header_path + "/include"
     if not files_exist(repository_ctx, [include_dir], bash_bin)[0]:
-        sycl_header_path = sycl_header_path + "/linux"
-        include_dir = sycl_header_path + "/include"
-        if not files_exist(repository_ctx, [include_dir], bash_bin)[0]:
-            auto_configure_fail("Cannot find sycl headers in {}".format(include_dir))
+        auto_configure_fail("Cannot find SYCL headers at %s" % include_dir)
     return sycl_header_path
 
 def _sycl_include_path(repository_ctx, sycl_config, bash_bin):
@@ -509,9 +507,9 @@ def _create_local_sycl_repository(repository_ctx):
     if hermetic:
         install_path = _repo_root(repository_ctx, "@sycl_hermetic")
         oneapi_version = get_host_environ(repository_ctx, "ONEAPI_VERSION", "2025.1").strip() or "2025.1"
-
+    
         sycl_config = struct(
-            sycl_basekit_path = install_path + "/oneapi",
+            sycl_basekit_path = install_path + "/oneapi/",
             sycl_toolkit_path = install_path + "/oneapi/compiler/" + oneapi_version,
             sycl_version_number = "80000",
             sycl_basekit_version_number = oneapi_version,
