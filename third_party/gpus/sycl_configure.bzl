@@ -50,10 +50,6 @@ def _repo_root(repository_ctx, repo_name):
     # Ensure @sycl_hermetic has a root BUILD (use build_file_content in WORKSPACE).
     return str(repository_ctx.path(Label("%s//:BUILD" % repo_name)).dirname)
 
-def _repo_root(repository_ctx, repo_name):
-    # Requires the http_archive to have a root BUILD (we used build_file_content above)
-    return str(repository_ctx.path(Label("%s//:BUILD" % repo_name)).dirname)
-
 def _first_existing(ctx, paths):
     for p in paths:
         if ctx.path(p).exists:
