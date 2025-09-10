@@ -505,19 +505,48 @@ def _create_local_sycl_repository(repository_ctx):
 
     hermetic = get_host_environ(repository_ctx, "SYCL_BUILD_HERMETIC", "") == "1"
     if hermetic:
-        install_path = _repo_root(repository_ctx, "@sycl_hermetic")
-        oneapi_version = get_host_environ(repository_ctx, "ONEAPI_VERSION", "2025.1").strip() or "2025.1"
-    
-        sycl_config = struct(
-            sycl_basekit_path = install_path + "/oneapi/",
-            sycl_toolkit_path = install_path + "/oneapi/compiler/" + oneapi_version,
-            sycl_version_number = "80000",
-            sycl_basekit_version_number = oneapi_version,
-            mkl_include_dir = install_path + "/oneapi/mkl/" + oneapi_version + "/include",
-            mkl_library_dir = install_path + "/oneapi/mkl/" + oneapi_version + "/lib",
-            l0_include_dir = install_path + "/level-zero-1.21.10/include",
-            l0_library_dir = install_path + "/lib",
-        )
+     install_path = _repo_root(repository_ctx, "@sycl_hermetic")
+     oneapi_version = get_host_environ(repository_ctx, "ONEAPI_VERSION", "2025.1").strip() or "2025.1"
+ 
+     # BaseKit-derived paths (keep your existing values for compiler & MKL)
+     sycl_toolkit_path = install_path + "/compiler/" + oneapi_version  # or "/oneapi/compiler/..." if you kept that layout
+     mkl_include_dir  = install_path + "/mkl/" + oneapi_version + "/include"
+     mkl_library_dir  = _first_existing(repository_ctx, [
+         install_path + "/mkl/" + oneapi_version + "/lib/intel64",
+         install_path + "/mkl/" + oneapi_version + "/lib",
+     ])
+ 
+     # NEW: Level Zero from separate redistributables
+     l0_root = _repo_root(repository_ctx, "@level_zero_redist")
+     ze_root = _repo_root(repository_ctx, "@ze_loader_redist")
+ 
+     # Be tolerant of both layouts: "<root>/include" OR "<root>/level-zero-1.21.10/include"
+     l0_include_dir = _first_existing(repository_ctx, [
+         l0_root + "/include/level_zero",              # e.g., if include/level_zero exists
+         l0_root + "/include",                         # plain include with headers
+         l0_root + "/level-zero-1.21.10/include",      # if tar keeps top name
+     ])
+ 
+     # Prefer ze_loader_redist libs, fall back to level_zero_redist libs if any
+     l0_library_dir = _first_existing(repository_ctx, [
+         ze_root + "/lib",
+         l0_root + "/lib",
+     ])
+ 
+     if not (mkl_library_dir and l0_include_dir and l0_library_dir):
+         auto_configure_fail("Missing MKL/Level Zero paths in hermetic redists")
+ 
+     sycl_config = struct(
+         sycl_basekit_path = install_path,
+         sycl_toolkit_path = sycl_toolkit_path,
+         sycl_version_number = "80000",
+         sycl_basekit_version_number = oneapi_version,
+         mkl_include_dir = mkl_include_dir,
+         mkl_library_dir = mkl_library_dir,
+         l0_include_dir  = l0_include_dir,
+         l0_library_dir  = l0_library_dir,
+     )
+
     else:
         # Non-hermetic: detect oneAPI on the host
         install_path = get_host_environ(repository_ctx, "SYCL_TOOLKIT_PATH", "") or "/opt/intel/oneapi/compiler/2025.1"
