@@ -405,7 +405,7 @@ def _create_local_sycl_repository(repository_ctx):
             repository_ctx,
             name = "level-zero-include",
             src_dir = _l0_include_path(sycl_config),
-            out_dir = "level_zero/include/level_zero",
+            out_dir = "level_zero/include",
         ),
     ]
 
