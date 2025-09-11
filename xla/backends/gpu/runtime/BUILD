@@ -836,6 +836,7 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
+        "@llvm-project//llvm:Support",
     ],
 )
 
@@ -870,7 +871,6 @@ cuda_library(
         "-DLIBCUDACXX_ENABLE_EXPERIMENTAL_MEMORY_RESOURCE",
     ],
     tags = ["cuda-only"],
-    textual_hdrs = ["raft_vectorized_bf16.h"],
     deps = [
         "//xla:status_macros",
         "//xla:types",
@@ -878,6 +878,7 @@ cuda_library(
         "//xla/stream_executor:device_memory_allocator",
         "//xla/stream_executor:scratch_allocator",
         "//xla/stream_executor:stream",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log",
@@ -968,8 +969,27 @@ cc_library(
     deps = [
         ":thunk",
         "//xla/service:buffer_assignment",
-        "//xla/stream_executor:stream_executor_h",
+        "//xla/stream_executor:device_memory",
+        "//xla/tsl/platform:statusor",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+xla_cc_test(
+    name = "memset_thunk_test",
+    srcs = ["memset_thunk_test.cc"],
+    deps = [
+        ":memset_thunk",
+        ":thunk",
+        ":thunk_proto_cc",
+        "//xla/service:buffer_assignment",
+        "//xla/tsl/platform:statusor",
+        "//xla/tsl/util/proto:proto_matchers",
+        "@com_google_absl//absl/log:check",
+        "@com_google_googletest//:gtest_main",
+        "@tsl//tsl/platform:protobuf",
     ],
 )
 
@@ -1127,8 +1147,8 @@ cc_library(
         "//xla/backends/gpu/collectives:gpu_communicator",
         "//xla/core/collectives:communicator",
         "//xla/core/collectives:rank_id",
+        "//xla/hlo/ir:collective_op_group_mode",
         "//xla/hlo/ir:hlo",
-        "//xla/service:collective_ops_utils",
         "//xla/service:rendezvous",
         "//xla/service/gpu/transforms/collectives:collective_ops_utils",
         "//xla/stream_executor:device_memory",
@@ -2092,6 +2112,7 @@ cc_library(
         ":cudnn_thunk",
         ":gemm_thunk",
         ":kernel_thunk",
+        ":memset_thunk",
         ":replica_id_thunk",
         ":sequential_thunk",
         ":thunk",

@@ -271,7 +271,6 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_detailed_logging(true);
   opts.set_xla_enable_dumping(true);
 
-  opts.set_xla_gpu_enable_custom_fusions(false);
   opts.set_xla_gpu_nccl_termination_timeout_seconds(-1);
   opts.set_xla_gpu_enable_shared_constants(true);
   opts.set_xla_gpu_enable_nccl_user_buffers(false);
@@ -290,7 +289,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_dump_latency_hiding_schedule(false);
   opts.set_xla_gpu_enable_latency_hiding_scheduler(false);
   opts.set_xla_gpu_enable_analytical_latency_estimator(false);
-  opts.set_xla_gpu_enable_analytical_sol_latency_estimator(false);
+  opts.set_xla_gpu_enable_analytical_sol_latency_estimator(true);
   auto* sol_estimator_defaults =
       opts.mutable_xla_gpu_analytical_latency_estimator_options();
   sol_estimator_defaults->emplace(kSolNcclOpLaunchUs, "-1");
@@ -424,6 +423,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
 
   opts.set_xla_gpu_experimental_collective_perf_table_path("");
   opts.set_xla_gpu_experimental_matmul_perf_table_path("");
+  // TODO(b/366475196): Create XLA GPU without cuDNN, cuBLAS.
   opts.set_xla_gpu_experimental_disable_binary_libraries(false);
   // --xla_ignore_channel_id should be kept false by default while channel ids
   // are load-bearing.
@@ -432,7 +432,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_enable_fast_math(false);
   opts.set_xla_gpu_experimental_parallel_collective_overlap_limit(1);
   opts.set_xla_pjrt_allow_auto_layout_in_hlo(false);
-  opts.set_xla_gpu_enable_scatter_determinism_expander(true);
+  opts.set_xla_gpu_enable_scatter_determinism_expander(false);
   opts.set_xla_gpu_unsupported_enable_ragged_all_to_all_decomposer(false);
   opts.set_xla_gpu_unsupported_use_all_reduce_one_shot_kernel(false);
   opts.set_xla_gpu_unsupported_use_ragged_all_to_all_one_shot_kernel(true);
@@ -450,6 +450,7 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   opts.set_xla_gpu_experimental_enable_command_buffer_on_thunks(true);
   opts.set_xla_detect_unstable_reductions(
       DebugOptions::UNSTABLE_REDUCTION_DETECTION_MODE_NONE);
+  opts.set_xla_gpu_experimental_scaled_dot_with_triton(false);
   return opts;
 }
 
@@ -1684,11 +1685,6 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
                 bool_setter_for(&DebugOptions::set_xla_dump_full_hlo_config),
                 debug_options->xla_dump_full_hlo_config(),
                 "Enable dumping the full HloModuleConfig proto."));
-  flag_list->push_back(tsl::Flag(
-      "xla_gpu_enable_custom_fusions",
-      bool_setter_for(&DebugOptions::set_xla_gpu_enable_custom_fusions),
-      debug_options->xla_gpu_enable_custom_fusions(),
-      "Whether to enable XLA custom fusions"));
   flag_list->push_back(tsl::Flag(
       "xla_gpu_enable_custom_fusions_re",
       string_setter_for(&DebugOptions::set_xla_gpu_enable_custom_fusions_re),
