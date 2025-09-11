@@ -399,7 +399,7 @@ def _create_local_sycl_repository(repository_ctx):
             repository_ctx,
             name = "mkl-include",
             src_dir = _mkl_include_path(sycl_config),
-            out_dir = "sycl/include",
+            out_dir = "mkl/include",
         ),
         make_copy_dir_rule(
             repository_ctx,
