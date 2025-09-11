@@ -488,7 +488,21 @@ def _create_local_sycl_repository(repository_ctx):
 
     sycl_internal_inc_dirs = find_sycl_include_path(repository_ctx, sycl_config)
     cxx_builtin_includes_list = sycl_internal_inc_dirs + _sycl_include_path(repository_ctx, sycl_config, bash_bin) + host_compiler_includes
-    sycl_defines["%{cxx_builtin_include_directories}"] = to_list_of_strings(cxx_builtin_includes_list)
+    # Force-add oneAPI compiler resource dirs seen in error
+    oneapi_toolkit = sycl_config.sycl_toolkit_path  # .../oneapi/2025.1
+    forced_oneapi_dirs = [
+        oneapi_toolkit + "/opt/compiler/include",
+        oneapi_toolkit + "/lib/clang/20/include",
+    ]
+
+    # Deduplicate while preserving order
+    seen = {}
+    deduped = []
+    for p in cxx_builtin_includes_list + forced_oneapi_dirs:
+        if p not in seen:
+            seen[p] = True
+            deduped.append(p)
+    sycl_defines["%{cxx_builtin_include_directories}"] = to_list_of_strings(deduped)
     sycl_defines["%{unfiltered_compile_flags}"] = to_list_of_strings([
         "-DTENSORFLOW_USE_SYCL=1",
         "-DMKL_ILP64",
