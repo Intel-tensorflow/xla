@@ -8,8 +8,6 @@
 #   - @sycl_hermetic         (contains oneapi/2025.1 and oneapi/mkl/2025.1)
 #   - @level_zero_redist     (contains level-zero-1.21.10/include)
 #   - @ze_loader_redist      (contains lib with ze_loader)
-#
-# Paths are assumed exactly as provided in the user’s Bazel cache listing.
 
 load(
     "//third_party/remote_config:common.bzl",
@@ -38,36 +36,34 @@ _GCC_HOST_COMPILER_PREFIX = "GCC_HOST_COMPILER_PREFIX"
 _CLANG_HOST_COMPILER_PATH = "CLANG_COMPILER_PATH"
 _CLANG_HOST_COMPILER_PREFIX = "CLANG_HOST_COMPILER_PATH"
 
-# ---------- Fixed paths from http_archive repos (minimal helpers) ----------
-
 def _repo_root(repository_ctx, repo_name):
     # Use the path to @repo//:BUILD and take its dirname to find the repo root.
     return str(repository_ctx.path(Label("@%s//:BUILD" % repo_name)).dirname)
 
 def _sycl_fixed_config_from_http_archives(repository_ctx):
-    """Build a sycl_config with fixed, known paths relative to external repos."""
+    """Build a sycl_config with paths relative to external repos, using ONEAPI_VERSION."""
     sycl_root = _repo_root(repository_ctx, "sycl_hermetic")
     l0_root   = _repo_root(repository_ctx, "level_zero_redist")
     ze_root   = _repo_root(repository_ctx, "ze_loader_redist")
 
-    # From your listing:
-    # @sycl_hermetic/oneapi/2025.1 -> bin, include, lib, linux/...
-    # @sycl_hermetic/oneapi/mkl/2025.1 -> include, lib
-    # @level_zero_redist/level-zero-1.21.10/include
-    # @ze_loader_redist/lib
+    # Read ONEAPI_VERSION from --repo_env=ONEAPI_VERSION=...
+    oneapi_version = get_host_environ(repository_ctx, "ONEAPI_VERSION", "")
+    if not oneapi_version:
+        # Minimal, safe fallback that matches your current layout.
+        # If you prefer failing hard instead, replace with:
+        #   fail("ONEAPI_VERSION must be set via --repo_env=ONEAPI_VERSION=<X.Y[.Z]>")
+        oneapi_version = "2025.1"
 
     return struct(
         sycl_basekit_path = sycl_root + "/oneapi",
-        sycl_toolkit_path = sycl_root + "/oneapi/2025.1",
-        sycl_version_number = "unknown",
-        sycl_basekit_version_number = "2025.1",
-        mkl_include_dir = sycl_root + "/oneapi/mkl/2025.1/include",
-        mkl_library_dir = sycl_root + "/oneapi/mkl/2025.1/lib",
+        sycl_toolkit_path = sycl_root + "/oneapi/" + oneapi_version,
+        sycl_version_number = "80000",  # keep your existing value
+        sycl_basekit_version_number = oneapi_version,
+        mkl_include_dir = sycl_root + "/oneapi/mkl/" + oneapi_version + "/include",
+        mkl_library_dir = sycl_root + "/oneapi/mkl/" + oneapi_version + "/lib",
         l0_include_dir = l0_root + "/level-zero-1.21.10/include",
         l0_library_dir = ze_root + "/lib",
     )
-
-# ------------------------ Existing code (mostly unchanged) ------------------------
 
 def _mkl_include_path(sycl_config):
     return sycl_config.mkl_include_dir
