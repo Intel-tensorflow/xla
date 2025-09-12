@@ -30,10 +30,12 @@ filegroup(
     name = "mkl_lib",
     srcs = ["@sycl_hermetic//:mkl_lib"],
 )
-
-# If Level Zero is needed remotely, uncomment these and make sure the external repos define them.
-# filegroup(name = "l0_include", srcs = ["@level_zero_redist//:l0_include"])
-# filegroup(name = "l0_lib",     srcs = ["@ze_loader_redist//:l0_lib"])
+filegroup(
+    name = "l0_include", 
+    srcs = ["@level_zero_redist//:l0_include"])
+filegroup(
+    name = "l0_lib",     
+    srcs = ["@ze_loader_redist//:l0_lib"])
 
 # Bundle everything the toolchain should carry to the remote sandbox:
 filegroup(
@@ -76,7 +78,7 @@ cc_toolchain(
     name = "cc-compiler-local",
     all_files      = ":sycl_tool_files",
     compiler_files = ":oneapi_bin",                 
-    linker_files   = ":crosstool_wrapper_driver_sycl",          
+    linker_files   = ":oneapi_bin",          
     ar_files       = ":crosstool_wrapper_driver_sycl",
     as_files       = ":crosstool_wrapper_driver_sycl",
     dwp_files      = ":empty",
