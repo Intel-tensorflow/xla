@@ -26,6 +26,8 @@ cc_library(
         ".",
         "sycl/include",
         "sycl/include/sycl",
+        "mkl/include", 
+        "level_zero/include",
     ],
     visibility = ["//visibility:public"],
 )
@@ -66,7 +68,7 @@ cc_library(
     ],
     includes = [
         ".",
-        "sycl/include",
+        "mkl/include",
     ],
     linkopts = ["-Wl,-Bstatic,-lsvml,-lirng,-limf,-lirc,-lirc_s,-Bdynamic"],
     linkstatic = 1,
