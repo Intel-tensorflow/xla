@@ -509,18 +509,47 @@ def _create_local_sycl_repository(repository_ctx):
     sycl_defines["%{basekit_path}"] = str(sycl_config.sycl_basekit_path)
     sycl_defines["%{basekit_version}"] = str(sycl_config.sycl_basekit_version_number)
 
-    repository_ctx.template("crosstool/BUILD", tpl_paths["crosstool:BUILD.sycl"], sycl_defines)
-    repository_ctx.template("crosstool/cc_toolchain_config.bzl", tpl_paths["crosstool:sycl_cc_toolchain_config.bzl"], sycl_defines)
-    repository_ctx.template("crosstool/clang/bin/crosstool_wrapper_driver_sycl", tpl_paths["crosstool:clang/bin/crosstool_wrapper_driver_sycl"], sycl_defines)
-    repository_ctx.template("crosstool/clang/bin/ar_driver_sycl", tpl_paths["crosstool:clang/bin/ar_driver_sycl"], sycl_defines)
+    # Only expand template variables in the BUILD file
+    repository_ctx.template(
+        "crosstool/BUILD",
+        tpl_paths["crosstool:BUILD.sycl"],
+        sycl_defines,
+    )
+
+    # No templating of cc_toolchain_config - use attributes and templatize the
+    # BUILD file.
+    repository_ctx.template(
+        "crosstool/cc_toolchain_config.bzl",
+        tpl_paths["crosstool:sycl_cc_toolchain_config.bzl"],
+        sycl_defines,
+    )
+
+    repository_ctx.template(
+        "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
+        tpl_paths["crosstool:clang/bin/crosstool_wrapper_driver_sycl"],
+        sycl_defines,
+    )
+    repository_ctx.template(
+        "crosstool/clang/bin/ar_driver_sycl",
+        tpl_paths["crosstool:clang/bin/ar_driver_sycl"],
+        sycl_defines,
+    )
 
 def _sycl_autoconf_imp(repository_ctx):
+    """Implementation of the sycl_autoconf rule."""
     if not enable_sycl(repository_ctx):
         _create_dummy_repository(repository_ctx)
     else:
         _create_local_sycl_repository(repository_ctx)
 
 sycl_configure = repository_rule(
+    # Detects and configures the local SYCL toolchain.
+    # Add the following to your WORKSPACE FILE:
+    # ```python
+    # sycl_configure(name = "local_config_sycl")
+    # ```
+    # Args:
+    #   name: A unique name for this workspace rule.
     implementation = _sycl_autoconf_imp,
     local = True,
     attrs = {
