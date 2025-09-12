@@ -7,6 +7,49 @@ licenses(["restricted"])
 
 package(default_visibility = ["//visibility:public"])
 
+# --- oneAPI inputs staged for the toolchain on RBE ---
+# These assume you defined these targets inside the @sycl_hermetic http_archive
+# via build_file/build_file_content (oneapi_bin/oneapi_include/oneapi_lib/mkl_*).
+filegroup(
+    name = "oneapi_bin",
+    srcs = ["@sycl_hermetic//:oneapi_bin"],
+)
+filegroup(
+    name = "oneapi_include",
+    srcs = ["@sycl_hermetic//:oneapi_include"],
+)
+filegroup(
+    name = "oneapi_lib",
+    srcs = ["@sycl_hermetic//:oneapi_lib"],
+)
+filegroup(
+    name = "mkl_include",
+    srcs = ["@sycl_hermetic//:mkl_include"],
+)
+filegroup(
+    name = "mkl_lib",
+    srcs = ["@sycl_hermetic//:mkl_lib"],
+)
+
+# If Level Zero is needed remotely, uncomment these and make sure the external repos define them.
+# filegroup(name = "l0_include", srcs = ["@level_zero_redist//:l0_include"])
+# filegroup(name = "l0_lib",     srcs = ["@ze_loader_redist//:l0_lib"])
+
+# Bundle everything the toolchain should carry to the remote sandbox:
+filegroup(
+    name = "sycl_tool_files",
+    srcs = [
+        ":crosstool_wrapper_driver_sycl",  # the wrapper itself
+        ":oneapi_bin",
+        ":oneapi_include",
+        ":oneapi_lib",
+        ":mkl_include",
+        ":mkl_lib",
+        ":l0_include",
+        ":l0_lib",
+    ],
+)
+
 toolchain(
     name = "toolchain-linux-x86_64",
     exec_compatible_with = [
@@ -31,14 +74,14 @@ cc_toolchain_suite(
 
 cc_toolchain(
     name = "cc-compiler-local",
-    all_files = ":crosstool_wrapper_driver_sycl",
-    compiler_files = ":crosstool_wrapper_driver_sycl",
-    ar_files = ":crosstool_wrapper_driver_sycl",
-    as_files = ":crosstool_wrapper_driver_sycl",
-    dwp_files = ":empty",
-    linker_files = ":crosstool_wrapper_driver_sycl",
-    objcopy_files = ":empty",
-    strip_files = ":empty",
+    all_files      = ":sycl_tool_files",
+    compiler_files = ":oneapi_bin",                 
+    linker_files   = ":crosstool_wrapper_driver_sycl",          
+    ar_files       = ":crosstool_wrapper_driver_sycl",
+    as_files       = ":crosstool_wrapper_driver_sycl",
+    dwp_files      = ":empty",
+    objcopy_files  = ":empty",
+    strip_files    = ":empty",
     # To support linker flags that need to go to the start of command line
     # we need the toolchain to support parameter files. Parameter files are
     # last on the command line and contain all shared libraries to link, so all
