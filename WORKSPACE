@@ -162,7 +162,6 @@ http_archive(
     name = "level_zero_redist",
     urls = ["https://tensorflow-file-hosting.s3.us-east-1.amazonaws.com/level-zero-1.21.10.tar.gz"],
     sha256 = "e0ff1c6cb9b551019579a2dd35c3a611240c1b60918c75345faf9514142b9c34",
-    # don't strip: we’ll read the repo root and derive paths at fetch time
     build_file_content = "package(default_visibility=[\"//visibility:public\"])\n",
 )
 
