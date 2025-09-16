@@ -255,8 +255,10 @@ def _get_sycl_config(repository_ctx, bash_bin):
         l0_library_dir = config["l0_library_dir"],
     )
 
-def _tpl_path(repository_ctx, labelname):
-    return repository_ctx.path(Label("//third_party/gpus/%s.tpl" % labelname))
+def _tpl_from_attr(repository_ctx, label_attr, substitutions = {}, out = None):
+    src = repository_ctx.path(label_attr)
+    dst = out or src.basename
+    repository_ctx.template(dst, src, substitutions)
 
 def _tpl(repository_ctx, tpl, substitutions = {}, out = None):
     if not out:
@@ -342,10 +344,16 @@ def _create_dummy_repository(
     repository_ctx.file("crosstool/error_gpu_disabled.bzl", _DUMMY_CROSSTOOL_BZL_FILE)
     repository_ctx.file("crosstool/BUILD", _DUMMY_CROSSTOOL_BUILD_FILE)
 
-    _tpl(
+    # Templated files via attr labels (no Label() in impl)
+    _tpl_from_attr(
         repository_ctx,
-        "sycl:build_defs.bzl",
-        {"%{sycl_is_configured}": "False", "%{sycl_build_is_configured}": "False"},
+        repository_ctx.attr._tpl_sycl_build_defs,
+        {
+            "%{sycl_is_configured}": "False",
+            "%{sycl_build_is_configured}": "False",
+        },
+        out = "sycl/build_defs.bzl",
+    )
     )
 
     _tpl(
@@ -365,21 +373,13 @@ def _create_dummy_repository(
             "%{sycl_headers}": "",
             "%{copy_rules}": "\n".join(copy_rules) if copy_rules else "",
         },
+     out = "sycl/BUILD",
     )
 
 def _create_local_sycl_repository(repository_ctx):
-    tpl_paths = {labelname: _tpl_path(repository_ctx, labelname) for labelname in [
-        "sycl:build_defs.bzl",
-        "sycl:BUILD",
-        "crosstool:BUILD.sycl",
-        "crosstool:sycl_cc_toolchain_config.bzl",
-        "crosstool:clang/bin/crosstool_wrapper_driver_sycl",
-        "crosstool:clang/bin/ar_driver_sycl",
-    ]}
-
     bash_bin = get_bash_bin(repository_ctx)
 
-    # NEW: use fixed directories derived from http_archive repos.
+    # Use fixed directories derived from http_archive repos (via attrs).
     sycl_config = _sycl_fixed_config_from_http_archives(repository_ctx)
 
     # Copy header and library files to execroot.
@@ -417,10 +417,12 @@ def _create_local_sycl_repository(repository_ctx):
         outs = sycl_lib_outs,
     ))
 
-    repository_ctx.template(
-        "sycl/build_defs.bzl",
-        tpl_paths["sycl:build_defs.bzl"],
+    # sycl/build_defs.bzl from template attr
+    _tpl_from_attr(
+        repository_ctx,
+        repository_ctx.attr._tpl_sycl_build_defs,
         {"%{sycl_is_configured}": "True", "%{sycl_build_is_configured}": "True"},
+        out = "sycl/build_defs.bzl",
     )
 
     if sycl_config.sycl_basekit_version_number < "2024":
@@ -441,9 +443,10 @@ def _create_local_sycl_repository(repository_ctx):
     def _fmt_src(path):
         return '"%s",\n' % path
 
-    repository_ctx.template(
-        "sycl/BUILD",
-        tpl_paths["sycl:BUILD"],
+    # sycl/BUILD from template attr
+    _tpl_from_attr(
+        repository_ctx,
+        repository_ctx.attr._tpl_sycl_BUILD,
         {
             "%{mkl_intel_ilp64_src}": _fmt_src("sycl/lib/" + sycl_libs["mkl_intel_ilp64"].file_name),
             "%{mkl_sequential_src}": _fmt_src("sycl/lib/" + sycl_libs["mkl_sequential"].file_name),
@@ -458,6 +461,7 @@ def _create_local_sycl_repository(repository_ctx):
             "%{level_zero_libs}": level_zero_libs,
             "%{level_zero_headers}": '":level-zero-include"',
         },
+        out = "sycl/BUILD",
     )
 
     # crosstool/
@@ -483,8 +487,9 @@ def _create_local_sycl_repository(repository_ctx):
 
     sycl_internal_inc_dirs = find_sycl_include_path(repository_ctx, sycl_config)
     cxx_builtin_includes_list = sycl_internal_inc_dirs + _sycl_include_path(repository_ctx, sycl_config, bash_bin) + host_compiler_includes
-    # Force-add oneAPI compiler resource dirs seen in error
-    oneapi_toolkit = sycl_config.sycl_toolkit_path  # .../oneapi/2025.1
+
+    # Optionally force-add oneAPI compiler resource dirs
+    oneapi_toolkit = sycl_config.sycl_toolkit_path
     forced_oneapi_dirs = [
         oneapi_toolkit + "/opt/compiler/include",
         oneapi_toolkit + "/lib/clang/20/include",
@@ -497,6 +502,7 @@ def _create_local_sycl_repository(repository_ctx):
         if p not in seen:
             seen[p] = True
             deduped.append(p)
+
     sycl_defines["%{cxx_builtin_include_directories}"] = to_list_of_strings(deduped)
     sycl_defines["%{unfiltered_compile_flags}"] = to_list_of_strings([
         "-DTENSORFLOW_USE_SYCL=1",
@@ -508,31 +514,12 @@ def _create_local_sycl_repository(repository_ctx):
     sycl_defines["%{basekit_path}"] = str(sycl_config.sycl_basekit_path)
     sycl_defines["%{basekit_version}"] = str(sycl_config.sycl_basekit_version_number)
 
-    # Only expand template variables in the BUILD file
-    repository_ctx.template(
-        "crosstool/BUILD",
-        tpl_paths["crosstool:BUILD.sycl"],
-        sycl_defines,
-    )
+    # crosstool files from template attrs
+    _tpl_from_attr(repository_ctx, repository_ctx.attr._tpl_crosstool_BUILD,                sycl_defines, out = "crosstool/BUILD")
+    _tpl_from_attr(repository_ctx, repository_ctx.attr._tpl_crosstool_cc_toolchain_config, sycl_defines, out = "crosstool/cc_toolchain_config.bzl")
+    _tpl_from_attr(repository_ctx, repository_ctx.attr._tpl_crosstool_wrapper,             sycl_defines, out = "crosstool/clang/bin/crosstool_wrapper_driver_sycl")
+    _tpl_from_attr(repository_ctx, repository_ctx.attr._tpl_ar_driver,                     sycl_defines, out = "crosstool/clang/bin/ar_driver_sycl")
 
-    # No templating of cc_toolchain_config - use attributes and templatize the
-    # BUILD file.
-    repository_ctx.template(
-        "crosstool/cc_toolchain_config.bzl",
-        tpl_paths["crosstool:sycl_cc_toolchain_config.bzl"],
-        sycl_defines,
-    )
-
-    repository_ctx.template(
-        "crosstool/clang/bin/crosstool_wrapper_driver_sycl",
-        tpl_paths["crosstool:clang/bin/crosstool_wrapper_driver_sycl"],
-        sycl_defines,
-    )
-    repository_ctx.template(
-        "crosstool/clang/bin/ar_driver_sycl",
-        tpl_paths["crosstool:clang/bin/ar_driver_sycl"],
-        sycl_defines,
-    )
 
 def _sycl_autoconf_imp(repository_ctx):
     """Implementation of the sycl_autoconf rule."""
