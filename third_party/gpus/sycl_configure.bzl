@@ -264,9 +264,6 @@ def _tpl_from_attr(repository_ctx, label_attr, substitutions = {}, out = None):
 
 _INC_DIR_MARKER_BEGIN = "#include <...>"
 
-def _cxx_inc_convert(path):
-    return path.strip()
-
 def _normalize_include_path(repository_ctx, path):
     path = str(repository_ctx.path(path))
     crosstool_folder = str(repository_ctx.path(".").get_child("crosstool"))
@@ -292,7 +289,7 @@ def _get_cxx_inc_directories_impl(repository_ctx, cc, lang_is_cpp):
         inc_dirs = stderr[index1 + 1:]
     else:
         inc_dirs = stderr[index1 + 1:index2].strip()
-    return [str(repository_ctx.path(_cxx_inc_convert(p))) for p in inc_dirs.split("\n")]
+    return [str(repository_ctx.path(p.strip())) for p in inc_dirs.split("\n")]
 
 def get_cxx_inc_directories(repository_ctx, cc):
     includes_cpp = _get_cxx_inc_directories_impl(repository_ctx, cc, True)
