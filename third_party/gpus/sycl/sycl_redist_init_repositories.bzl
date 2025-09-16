@@ -2,7 +2,7 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 def _maybe(name):
-    return native.existing_rule(name) is None
+    return native.existing_rule(name) == None
 
 def _http_from_item(item):
     http_archive(
