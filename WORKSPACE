@@ -152,7 +152,7 @@ nvshmem_redist_init_repository(
 )
 
 # 1) Make a tiny repo exporting distributions (like cuda_json_init_repository)
-load("//third_party/gpus:sycl_json_init_repository.bzl", "sycl_json_init_repository")
+load("//third_party/gpus/sycl:sycl_json_init_repository.bzl", "sycl_json_init_repository")
 sycl_json_init_repository()
 
 # 2) Load the lists and expand them into http_archives (like cuda_redist_init_repositories)
