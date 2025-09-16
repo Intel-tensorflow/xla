@@ -555,5 +555,21 @@ sycl_configure = repository_rule(
         "_find_sycl_config": attr.label(
             default = Label("//third_party/gpus:find_sycl_config.py"),
         ),
+     # NEW: pass external repo roots as labels (no Label() inside impl)
+        "sycl_build": attr.label(
+            default = Label("@sycl_hermetic//:BUILD"),
+            allow_single_file = True,
+            doc = "BUILD label inside @sycl_hermetic to derive its repo root.",
+        ),
+        "level_zero_build": attr.label(
+            default = Label("@level_zero_redist//:BUILD"),
+            allow_single_file = True,
+            doc = "BUILD label inside @level_zero_redist to derive its repo root.",
+        ),
+        "ze_loader_build": attr.label(
+            default = Label("@ze_loader_redist//:BUILD"),
+            allow_single_file = True,
+            doc = "BUILD label inside @ze_loader_redist to derive its repo root.",
+        ),
     },
 )
