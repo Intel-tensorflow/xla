@@ -260,10 +260,7 @@ def _tpl_from_attr(repository_ctx, label_attr, substitutions = {}, out = None):
     dst = out or src.basename
     repository_ctx.template(dst, src, substitutions)
 
-def _tpl(repository_ctx, tpl, substitutions = {}, out = None):
-    if not out:
-        out = tpl.replace(":", "/")
-    repository_ctx.template(out, _tpl_path(repository_ctx, tpl), substitutions)
+
 
 _INC_DIR_MARKER_BEGIN = "#include <...>"
 
