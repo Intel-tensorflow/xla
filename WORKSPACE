@@ -150,3 +150,25 @@ load(
 nvshmem_redist_init_repository(
     nvshmem_redistributions = NVSHMEM_REDISTRIBUTIONS,
 )
+
+# 1) Make a tiny repo exporting distributions (like cuda_json_init_repository)
+load("//third_party/gpus:sycl_json_init_repository.bzl", "sycl_json_init_repository")
+sycl_json_init_repository()
+
+# 2) Load the lists and expand them into http_archives (like cuda_redist_init_repositories)
+load("@sycl_redist_json//:distributions.bzl", "SYCL_REDISTRIBUTIONS", "ZE_REDISTRIBUTIONS")
+load("//third_party/gpus:sycl_redist_init_repositories.bzl", "sycl_redist_init_repositories")
+
+sycl_redist_init_repositories(
+    sycl_redistributions = SYCL_REDISTRIBUTIONS,
+    ze_redistributions = ZE_REDISTRIBUTIONS,
+)
+
+# 3) Configure (like cuda_configure), passing labels as attrs (no Label() in impl)
+load("//third_party/gpus:sycl_configure.bzl", "sycl_configure")
+
+sycl_configure(
+    name = "local_config_sycl",
+    level_zero_build = "@level_zero_redist//:BUILD",
+    ze_loader_build  = "@ze_loader_redist//:BUILD",
+)
