@@ -354,11 +354,10 @@ def _create_dummy_repository(
         },
         out = "sycl/build_defs.bzl",
     )
-    )
 
-    _tpl(
+    _tpl_from_attr(
         repository_ctx,
-        "sycl:BUILD",
+        repository_ctx.attr._tpl_sycl_BUILD,
         {
             "%{mkl_intel_ilp64_src}": "",
             "%{mkl_sequential_src}": "",
@@ -373,8 +372,9 @@ def _create_dummy_repository(
             "%{sycl_headers}": "",
             "%{copy_rules}": "\n".join(copy_rules) if copy_rules else "",
         },
-     out = "sycl/BUILD",
+        out = "sycl/BUILD",
     )
+
 
 def _create_local_sycl_repository(repository_ctx):
     bash_bin = get_bash_bin(repository_ctx)
@@ -529,34 +529,50 @@ def _sycl_autoconf_imp(repository_ctx):
         _create_local_sycl_repository(repository_ctx)
 
 sycl_configure = repository_rule(
-    # Detects and configures the local SYCL toolchain.
-    # Add the following to your WORKSPACE FILE:
-    # ```python
-    # sycl_configure(name = "local_config_sycl")
-    # ```
-    # Args:
-    #   name: A unique name for this workspace rule.
     implementation = _sycl_autoconf_imp,
     local = True,
     attrs = {
         "_find_sycl_config": attr.label(
             default = Label("//third_party/gpus:find_sycl_config.py"),
+            allow_single_file = True,
         ),
-     # NEW: pass external repo roots as labels (no Label() inside impl)
+        # external repo roots
         "sycl_build": attr.label(
             default = Label("@sycl_hermetic//:BUILD"),
             allow_single_file = True,
-            doc = "BUILD label inside @sycl_hermetic to derive its repo root.",
         ),
         "level_zero_build": attr.label(
             default = Label("@level_zero_redist//:BUILD"),
             allow_single_file = True,
-            doc = "BUILD label inside @level_zero_redist to derive its repo root.",
         ),
         "ze_loader_build": attr.label(
             default = Label("@ze_loader_redist//:BUILD"),
             allow_single_file = True,
-            doc = "BUILD label inside @ze_loader_redist to derive its repo root.",
+        ),
+        # template files (NO Label() in impl)
+        "_tpl_sycl_build_defs": attr.label(
+            default = Label("//third_party/gpus/sycl:build_defs.bzl.tpl"),
+            allow_single_file = True,
+        ),
+        "_tpl_sycl_BUILD": attr.label(
+            default = Label("//third_party/gpus/sycl:BUILD.tpl"),
+            allow_single_file = True,
+        ),
+        "_tpl_crosstool_BUILD": attr.label(
+            default = Label("//third_party/gpus/crosstool:BUILD.sycl.tpl"),
+            allow_single_file = True,
+        ),
+        "_tpl_crosstool_cc_toolchain_config": attr.label(
+            default = Label("//third_party/gpus/crosstool:sycl_cc_toolchain_config.bzl.tpl"),
+            allow_single_file = True,
+        ),
+        "_tpl_crosstool_wrapper": attr.label(
+            default = Label("//third_party/gpus/crosstool/clang/bin:crosstool_wrapper_driver_sycl.tpl"),
+            allow_single_file = True,
+        ),
+        "_tpl_ar_driver": attr.label(
+            default = Label("//third_party/gpus/crosstool/clang/bin:ar_driver_sycl.tpl"),
+            allow_single_file = True,
         ),
     },
 )
