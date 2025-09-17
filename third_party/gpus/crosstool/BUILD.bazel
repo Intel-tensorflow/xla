@@ -1,0 +1,6 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "BUILD.sycl.tpl",
+    "sycl_cc_toolchain_config.bzl.tpl",
+])
