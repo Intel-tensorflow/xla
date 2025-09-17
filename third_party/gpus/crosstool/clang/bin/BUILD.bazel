@@ -1,0 +1,6 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "crosstool_wrapper_driver_sycl.tpl",
+    "ar_driver_sycl.tpl",
+])
