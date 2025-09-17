@@ -1,8 +1,6 @@
-# third_party/gpus/sycl_json_init_repository.bzl
 def _sycl_json_repo_impl(repo_ctx):
     repo_ctx.file("WORKSPACE", "")
     repo_ctx.file("BUILD.bazel", "package(default_visibility=[\"//visibility:public\"])")
-    # Keep this simple; you can later switch to reading a JSON manifest if needed.
     repo_ctx.file("distributions.bzl", """
 SYCL_REDISTRIBUTIONS = [
     {
@@ -34,6 +32,6 @@ ZE_REDISTRIBUTIONS = [
 
 sycl_json_init_repository = repository_rule(
     implementation = _sycl_json_repo_impl,
-    attrs = {},  # keep room for future knobs (e.g., alt manifests)
+    attrs = {},
     local = True,
 )
