@@ -58,7 +58,7 @@ def _sycl_fixed_config_from_http_archives(repository_ctx):
         mkl_include_dir = sycl_root + "/oneapi/mkl/" + oneapi_version + "/include",
         mkl_library_dir = sycl_root + "/oneapi/mkl/" + oneapi_version + "/lib",
         # If your L0 archive is strip_prefixed to expose include/ at root, drop the subdir below.
-        l0_include_dir = l0_root + "/level-zero-1.21.10/include",
+        l0_include_dir = l0_root + "/include",
         # ze_loader_redist typically exposes lib/ (or lib64/) at root
         l0_library_dir = ze_root + "/lib",
     )
