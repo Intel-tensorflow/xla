@@ -66,6 +66,7 @@ cc_library(
     ],
     includes = [
         ".",
+        "mkl/include",
         "sycl/include",
     ],
     linkopts = ["-Wl,-Bstatic,-lsvml,-lirng,-limf,-lirc,-lirc_s,-Bdynamic"],
