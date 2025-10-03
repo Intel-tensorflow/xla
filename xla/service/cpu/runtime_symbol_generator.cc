@@ -56,7 +56,6 @@ limitations under the License.
 
 #ifdef XLA_ONEDNN
 #include "xla/service/cpu/onednn_convolution.h"
-#include "xla/service/cpu/onednn_layer_norm.h"
 #include "xla/service/cpu/onednn_matmul.h"
 #include "xla/service/cpu/onednn_softmax.h"
 #endif  // XLA_ONEDNN

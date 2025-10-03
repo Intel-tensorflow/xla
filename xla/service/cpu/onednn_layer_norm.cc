@@ -27,7 +27,6 @@ limitations under the License.
 #include "xla/executable_run_options.h"
 #include "xla/service/cpu/backend_config.pb.h"
 #include "xla/service/cpu/runtime_lightweight_check.h"
-#include "xla/tsl/util/onednn_threadpool.h"
 
 // Eigen Tensor must come after `onednn_threadpool.h`
 #include "unsupported/Eigen/CXX11/Tensor"  // NOLINT
