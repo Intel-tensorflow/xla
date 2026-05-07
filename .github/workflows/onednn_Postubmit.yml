@@ -31,20 +31,19 @@ jobs:
   Tests:
     name: XLA Linux X86 GPU ONEAPI POSTSUBMIT
     runs-on: 'ubuntu-latest'
-    container: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest  # zizmor: ignore[unpinned-images]
+    container:
+      image: us-docker.pkg.dev/ml-oss-artifacts-published/ml-public-container/ml-build:latest  # zizmor: ignore[unpinned-images]
+      options: --device /dev/dri
     timeout-minutes: 120
-
     defaults:
       run:
         shell: bash
-
     steps:
       - name: Checking out openxla/xla
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           path: openxla/xla
           persist-credentials: false
-
       - name: Run oneAPI CI
         working-directory: openxla/xla
         run: bash build_tools/sycl/ci_docker_test.sh
