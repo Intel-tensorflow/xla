@@ -13,18 +13,30 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#define EIGEN_USE_THREADS
+
 #include "xla/tsl/framework/contraction/eigen_contraction_kernel.h"  // IWYU pragma: keep
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 #include "absl/strings/str_cat.h"
 #include "unsupported/Eigen/CXX11/Tensor"
 
 namespace {
+
+// Value used to pre-fill output buffers, so that a contraction that does not
+// write its output is detected instead of passing on zero-initialized memory.
+template <typename T>
+T Sentinel() {
+  return std::numeric_limits<T>::has_quiet_NaN
+             ? std::numeric_limits<T>::quiet_NaN()
+             : std::numeric_limits<T>::max();
+}
 
 template <typename T>
 static void ExpectClose(Eigen::Tensor<T, 2> res, Eigen::Tensor<T, 2> expected) {
@@ -45,13 +57,15 @@ void RunEigenMatMul(int m, int k, int n) {
 
   lhs.setRandom();
   rhs.setRandom();
-  out.setZero();
+  out.setConstant(Sentinel<OutType>());
 
   using DimPair = typename Eigen::Tensor<LhsType, 2>::DimensionPair;
   std::array<DimPair, 1> dims({DimPair(1, 0)});
   out = lhs.contract(rhs, dims);
 
-  Eigen::Tensor<OutType, 2> expected =
+  Eigen::Tensor<OutType, 2> expected(m, n);
+  expected.setZero();
+  expected =
       lhs.template cast<OutType>().contract(rhs.template cast<OutType>(), dims);
 
   ExpectClose<OutType>(out, expected);
@@ -65,7 +79,7 @@ void RunEigenTensorMapMatMul(int m, int k, int n) {
 
   lhs_storage.setRandom();
   rhs_storage.setRandom();
-  out_storage.setZero();
+  out_storage.setConstant(Sentinel<OutType>());
 
   const Eigen::TensorMap<Eigen::Tensor<const LhsType, 2>, Alignment> lhs(
       lhs_storage.data(), m, k);
@@ -82,7 +96,9 @@ void RunEigenTensorMapMatMul(int m, int k, int n) {
       lhs_aligned(lhs_storage.data(), m, k);
   const Eigen::TensorMap<Eigen::Tensor<const RhsType, 2>, Eigen::Aligned>
       rhs_aligned(rhs_storage.data(), k, n);
-  Eigen::Tensor<OutType, 2> expected =
+  Eigen::Tensor<OutType, 2> expected(m, n);
+  expected.setZero();
+  expected =
       lhs_aligned.template cast<OutType>().contract(
           rhs_aligned.template cast<OutType>(), dims);
 
@@ -118,6 +134,26 @@ TEST_P(EigenContractionKernelTest, FloatTensorMapUnaligned) {
   EigenContractionKernelTestParams param = GetParam();
   RunEigenTensorMapMatMul<float, float, float, Eigen::Unaligned>(
       param.m, param.k, param.n);
+}
+
+// A contraction over a zero-size dimension must write an all-zero output on
+// the thread-pool path as well.
+TEST(EigenContractionKernelThreadPoolTest, FloatZeroContractionDim) {
+  const int m = 10, k = 0, n = 10;
+  Eigen::Tensor<float, 2> lhs(m, k);
+  Eigen::Tensor<float, 2> rhs(k, n);
+  Eigen::Tensor<float, 2> out(m, n);
+  out.setConstant(Sentinel<float>());
+
+  Eigen::ThreadPool pool(4);
+  Eigen::ThreadPoolDevice device(&pool, 4);
+  using DimPair = Eigen::Tensor<float, 2>::DimensionPair;
+  std::array<DimPair, 1> dims({DimPair(1, 0)});
+  out.device(device) = lhs.contract(rhs, dims);
+
+  Eigen::Tensor<float, 2> expected(m, n);
+  expected.setZero();
+  ExpectClose<float>(out, expected);
 }
 
 #if defined(TENSORFLOW_USE_MKLDNN_CONTRACTION_KERNEL)

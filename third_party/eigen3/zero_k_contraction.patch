@@ -1,0 +1,83 @@
+# Copyright 2026 The OpenXLA Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+#
+# Backport of Eigen commit 406183cc1c14ee98f6b3efb3922772dabdd75e2b
+# ("Tensor: Fix output buffer initialization on zero-size contraction
+# dimension"). Without it, contractions with K == 0 leave the output
+# uninitialized on the sequential path when the contraction kernel has
+# HasBeta (e.g. the oneDNN kernel) and on the thread-pool path for all
+# kernels. Remove once EIGEN_COMMIT includes 406183cc.
+diff --git a/unsupported/Eigen/src/Tensor/TensorContraction.h b/unsupported/Eigen/src/Tensor/TensorContraction.h
+index 6768814..4ac9bc6 100644
+--- a/unsupported/Eigen/src/Tensor/TensorContraction.h
++++ b/unsupported/Eigen/src/Tensor/TensorContraction.h
+@@ -677,6 +677,17 @@ struct TensorContractionEvaluatorBase {
+ 
+   template <bool lhs_inner_dim_contiguous, bool rhs_inner_dim_contiguous, bool rhs_inner_dim_reordered, int Alignment>
+   void evalProductSequential(Scalar* buffer) const {
++    if (this->m_i_size == 0 || this->m_j_size == 0) {
++      return;
++    }
++    if (this->m_k_size == 0) {
++      // Contraction over dimension of size zero results in an all-zero output.
++      this->m_device.fill(buffer, buffer + this->m_i_size * this->m_j_size, Scalar(0));
++      using OutputMapper = internal::blas_data_mapper<Scalar, Index, ColMajor>;
++      this->m_output_kernel(OutputMapper(buffer, this->m_i_size), this->m_tensor_contraction_params,
++                            static_cast<Index>(0), static_cast<Index>(0), this->m_i_size, this->m_j_size);
++      return;
++    }
+     if (this->m_j_size == 1) {
+       this->template evalGemv<lhs_inner_dim_contiguous, rhs_inner_dim_contiguous, rhs_inner_dim_reordered, Alignment>(
+           buffer);
+@@ -761,6 +772,17 @@ struct TensorContractionEvaluatorBase {
+     // columns in right side
+     const Index n = this->m_j_size;
+ 
++    if (m == 0 || n == 0) return;
++    if (k_slice == 0) {
++      this->m_device.fill(buffer, buffer + m * n, Scalar(0));
++      if (use_output_kernel) {
++        using OutputMapper = internal::blas_data_mapper<Scalar, Index, ColMajor>;
++        m_output_kernel(OutputMapper(buffer, m), m_tensor_contraction_params, static_cast<Index>(0),
++                        static_cast<Index>(0), m, n);
++      }
++      return;
++    }
++
+     // define data mappers for Lhs and Rhs
+     using LhsScalar = std::remove_const_t<typename EvalLeftArgType::Scalar>;
+     using RhsScalar = std::remove_const_t<typename EvalRightArgType::Scalar>;
+diff --git a/unsupported/Eigen/src/Tensor/TensorContractionThreadPool.h b/unsupported/Eigen/src/Tensor/TensorContractionThreadPool.h
+index 5dd5d60..41aa974 100644
+--- a/unsupported/Eigen/src/Tensor/TensorContractionThreadPool.h
++++ b/unsupported/Eigen/src/Tensor/TensorContractionThreadPool.h
+@@ -104,7 +104,16 @@ struct TensorEvaluator<const TensorContractionOp<Indices, LeftArgType, RightArgT
+     const Index m = this->m_i_size;
+     const Index n = this->m_j_size;
+     const Index k = this->m_k_size;
+-    if (m == 0 || n == 0 || k == 0) return;
++    if (m == 0 || n == 0) {
++      if (!IsEvalInSyncMode) done();
++      return;
++    }
++    if (k == 0) {
++      // Contraction over dimension of size zero results in an all-zero output.
++      TENSOR_CONTRACTION_DISPATCH(this->template evalProductSequential, Unaligned, (buffer));
++      if (!IsEvalInSyncMode) done();
++      return;
++    }
+ 
+     // Compute a set of algorithm parameters:
+     // - kernel block sizes (bm, bn, bk)
